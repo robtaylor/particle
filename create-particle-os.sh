@@ -10,6 +10,11 @@ PREPARE=/mnt/particles/prepare
 STORE=/mnt/particles/store
 TMPSTORE=/mnt/particles/tmp
 
+for i in "$PREPARE" "$DEST" "$MASTER" "$STORE" "$TMPSTORE"; do
+    [[ -d "$i" ]] || exit 1
+done
+
+
 trap '
     ret=$?;
     for i in proc dev sys run; do
@@ -35,8 +40,7 @@ mount -t tmpfs tmpfs "$DEST"/run
 if [[ -f $DEST/var/lib/rpm/Packages ]]; then
     yum -y --releasever="$RELEASE" --disablerepo='*' \
 	--enablerepo=fedora --enablerepo=fedora-rawhide-kernel-nodebug \
-	--nogpg --installroot="$DEST" --downloaddir=$STORE/packages \
-	-c /mnt/particles/store/installer/yum.conf \
+	--nogpg --installroot="$DEST" \
 	check-update \
 	&& exit 0
 
@@ -105,7 +109,7 @@ PREPARE=/mnt/particles/prepare
 rsync -Paqorx --delete-after "$INSTALL"/ "$PREPARE"/
 
 # Copy os-release (should move to /usr and /etc be a symlink)
-cp -a $PREPARE/etc/os-release $PREPARE/usr/lib/
+cp --reflink=always -a $PREPARE/etc/os-release $PREPARE/usr/lib/
 
 # factory directory to populate /etc
 mkdir -p $PREPARE/usr/share/factory/etc/
@@ -134,6 +138,7 @@ mv $PREPARE/etc/yum $PREPARE/usr/share/factory/etc/
 mv $PREPARE/etc/yum.conf $PREPARE/usr/share/factory/etc/
 mv $PREPARE/etc/yum.repos.d/ $PREPARE/usr/share/factory/etc/
 mv $PREPARE/etc/pki/ $PREPARE/usr/share/factory/etc/
+rm -fr $PREPARE/usr/share/factory/etc/pki/ca-trust/extracted
 cat > $PREPARE/usr/lib/tmpfiles.d/factory-yum.conf <<EOF
 C /etc/yum.conf - - - -
 C /etc/yum - - - -
@@ -160,19 +165,18 @@ DHCP=yes
 EOF
 
 ( 
-    MACHINE_ID=$(</etc/machine-id)
+    MACHINE_ID=$(<$PREPARE/etc/machine-id)
     cd $PREPARE/lib/modules
     for v in *; do
+	[[ -f $PREPARE/boot/$MACHINE_ID/$v/initrd ]] \
+	    && cp --reflink=always -a  $PREPARE/boot/$MACHINE_ID/$v/initrd $v/initrd
+	[[ -f $PREPARE/boot/$MACHINE_ID/$v/kernel ]] \
+	    && cp --reflink=always -a $PREPARE/boot/$MACHINE_ID/$v/kernel $v/vmlinuz
+
 	for f in config System.map vmlinuz; do
 	    [[ -f $PREPARE/boot/${f}-${v} ]] || continue
-	    mv -v $PREPARE/boot/${f}-${v} $f
+	    cp --reflink=always -a $PREPARE/boot/${f}-${v} $v/$f
 	done
-	for f in initrd kernel; do
-	    [[ -f $PREPARE/boot/$MACHINE_ID/$v/$f ]] || continue
-	    mv -v $PREPARE/boot/$MACHINE_ID/$v/$f $f
-	done
-	[[ -f vmlinuz ]] && mv vmlinuz kernel
-	touch -r "$v"/kernel "$PREPARE/lib/modules"
     done
 )
 
@@ -184,7 +188,7 @@ echo "Make a copy of \`$PREPARE/usr/bin'."
 echo "Merge the copy with \`$PREPARE/usr/sbin'."
 [[ -d "$PREPARE/usr/bin.usrmove-new" ]] \
     || mkdir -p "$PREPARE/usr/bin.usrmove-new"
-cp -axT $CP_HARDLINK --backup --suffix=.usrmove~ "$PREPARE/usr/sbin" "$PREPARE/usr/bin.usrmove-new"
+cp -axT --reflink=always --backup --suffix=.usrmove~ "$PREPARE/usr/sbin" "$PREPARE/usr/bin.usrmove-new"
 echo "Clean up duplicates in \`$PREPARE/usr/bin'."
 # delete all symlinks that have been backed up
 find "$PREPARE/usr/bin.usrmove-new" -type l -name '*.usrmove~' -delete || :
@@ -205,22 +209,30 @@ ln -sfnr $PREPARE/usr/lib/x86_64-linux-gnu $PREPARE/usr/lib64
 
 for i in \
     $PREPARE/usr \
-    $PREPARE/usr/lib \
-    $PREPARE/usr/lib/rpm \
-    $PREPARE/usr/lib/systemd/network \
-    $PREPARE/usr/lib/systemd/network/* \
-    $PREPARE/usr/lib/tmpfiles.d \
-    $PREPARE/usr/lib/tmpfiles.d/factory-*.conf \
-    $PREPARE/usr/lib/rpm/macros.d \
     $PREPARE/usr/lib/rpm/macros.d/macros.rpmdb \
-    $PREPARE/usr/share \
-    $PREPARE/usr/share/factory \
-    $PREPARE/usr/share/factory/etc \
-    $PREPARE/usr/share/factory/etc/security \
+    $PREPARE/usr/lib/rpm/macros.d \
+    $PREPARE/usr/lib/rpm \
+    $PREPARE/usr/lib/systemd/network/* \
+    $PREPARE/usr/lib/systemd/network \
+    $PREPARE/usr/lib/tmpfiles.d/factory-*.conf \
+    $PREPARE/usr/lib/tmpfiles.d \
+    $PREPARE/usr/lib \
     $PREPARE/usr/share/factory/etc/security/* \
+    $PREPARE/usr/share/factory/etc/security \
+    $PREPARE/usr/share/factory/etc/pki/ca-trust/extracted/java/cacerts \
+    $PREPARE/usr/share/factory/etc \
+    $PREPARE/usr/share/factory \
+    $PREPARE/usr/share \
     ; do
     [[ -e $i ]] || continue
     touch -r $PREPARE/etc/os-release "$i"
+done
+
+touch -r $PREPARE/usr/lib/locale/locale-archive.tmpl $PREPARE/usr/lib/locale/locale-archive
+
+for i in $PREPARE/usr/lib/*/modules/modules.*; do
+    [[ -e $i ]] || continue
+    touch -r $PREPARE/usr/lib/*/modules/modules.builtin "$i"
 done
 
 (
@@ -243,7 +255,7 @@ while read a a a g a a a a v; do
     vol="$v"
 done < <(btrfs subvolume list usr)
 
-rsync -Pavorx --delete-after "$PREPARE"/usr/ "$MASTER"/usr/
+rsync -Pavorxc --delete-after "$PREPARE"/usr/ "$MASTER"/usr/
 
 btrfs subvolume snapshot -r usr "$SNAPSHOT_NAME"
 
@@ -252,7 +264,8 @@ btrfs subvolume snapshot -r usr "$SNAPSHOT_NAME"
 if [[ $vol != "usr" ]]; then
     btrfs send -p "$vol" "$SNAPSHOT_NAME" -f $TMPSTORE/usr:$VENDOR:"${vol##*:}-$VERSION".btrfsinc
     xz -T0 $TMPSTORE/usr:$VENDOR:"${vol##*:}-$VERSION".btrfsinc
-    mv $TMPSTORE/usr:$VENDOR:"${vol##*:}-$VERSION".btrfsinc* $STORE/increment/
+    mv $TMPSTORE/usr:$VENDOR:"${vol##*:}-$VERSION".btrfsinc.xz $STORE/increment/
+    ln -sfn usr:$VENDOR:"${vol##*:}-$VERSION".btrfsinc.xz $STORE/increment/usr:$VENDOR:"${vol##*:}".btrfsinc.xz
 fi
 
 LATEST="$STORE/images/usr:$VENDOR:latest.btrfs.xz"
@@ -260,8 +273,8 @@ LATEST="$STORE/images/usr:$VENDOR:latest.btrfs.xz"
 if ! [[ -f "$LATEST" ]] || (( ($(date +%s) - $(stat -L --format %Y "$LATEST" )) > (24*60*60) )); then
     btrfs send "$SNAPSHOT_NAME" -f "$TMPSTORE/$SNAPSHOT_NAME.btrfs"
     xz -T0 "$TMPSTORE/$SNAPSHOT_NAME.btrfs"
-    mv "$TMPSTORE/$SNAPSHOT_NAME.btrfs"* $STORE/images/
-    ln -sfnr $STORE/images/"$SNAPSHOT_NAME.btrfs"* "$LATEST"
+    mv "$TMPSTORE/$SNAPSHOT_NAME.btrfs.xz" $STORE/images/
+    ln -sfn "$SNAPSHOT_NAME.btrfs.xz" "$LATEST"
 fi
 
 chcon -R --type=httpd_sys_content_t $STORE
