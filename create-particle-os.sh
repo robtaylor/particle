@@ -92,6 +92,7 @@ add_drivers+=' usb-storage '
 EOF
 
 cp /etc/yum.repos.d/fedora-rawhide-kernel-nodebug.repo $DEST/etc/yum.repos.d/fedora-rawhide-kernel-nodebug.repo
+rm -f $DEST/boot/*/*/initrd $DEST/boot/initramfs*
 
 printf "\n### download and install kernel\n"
 # install after systemd.rpm created the machine-id which kernel-install wants
