@@ -36,11 +36,13 @@ mount --bind /sys "$DEST"/sys
 # packages wrongly install stuff here, but /run content does not belong on disk
 mount -t tmpfs tmpfs "$DEST"/run
 
+# --enablerepo=fedora-rawhide-kernel-nodebug \
 # short cut
 if [[ -f $DEST/var/lib/rpm/Packages ]]; then
     yum -y --releasever="$RELEASE" --disablerepo='*' \
-	--enablerepo=fedora --enablerepo=fedora-rawhide-kernel-nodebug \
+	--enablerepo=fedora \
 	--nogpg --installroot="$DEST" \
+	--setopt=keepcache=0 \
 	check-update \
 	&& exit 0
 
