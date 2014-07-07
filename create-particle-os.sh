@@ -116,6 +116,12 @@ cp --reflink=always -a $PREPARE/etc/os-release $PREPARE/usr/lib/
 # factory directory to populate /etc
 mkdir -p $PREPARE/usr/share/factory/etc/
 
+# shadow utils
+mv "$PREPARE"/etc/login.defs "$PREPARE"/usr/share/factory/etc/
+cat > "$PREPARE"/usr/lib/tmpfiles.d/factory-shadow-utils.conf <<EOF
+C /etc/login.defs - - - -
+EOF
+
 # copy PAM files to factory dir (PAM need to gain support for /usr/lib/pam.d/)
 mv $PREPARE/etc/pam.d/ $PREPARE/usr/share/factory/etc/
 mkdir $PREPARE/usr/share/factory/etc/security/
@@ -149,6 +155,16 @@ EOF
 
 cat > $PREPARE/usr/lib/tmpfiles.d/factory-pki.conf <<EOF
 C /etc/pki - - - -
+EOF
+
+# D-Bus
+mv "$ROOT"/etc/dbus-1/ "$ROOT"/usr/share/factory/etc/
+cat > "$ROOT"/usr/lib/tmpfiles.d/factory-dbus.conf <<EOF
+C /etc/dbus-1 - - - -
+EOF
+
+cat > "$ROOT"/usr/lib/sysusers.d/dbus.conf <<EOF
+u dbus - "D-Bus Legacy User"
 EOF
 
 # make sure we always have a working root login
