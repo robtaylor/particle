@@ -159,12 +159,12 @@ C /etc/pki - - - -
 EOF
 
 # D-Bus
-mv "$ROOT"/etc/dbus-1/ "$ROOT"/usr/share/factory/etc/
-cat > "$ROOT"/usr/lib/tmpfiles.d/factory-dbus.conf <<EOF
+mv "$PREPARE"/etc/dbus-1/ "$PREPARE"/usr/share/factory/etc/
+cat > "$PREPARE"/usr/lib/tmpfiles.d/factory-dbus.conf <<EOF
 C /etc/dbus-1 - - - -
 EOF
 
-cat > "$ROOT"/usr/lib/sysusers.d/dbus.conf <<EOF
+cat > "$PREPARE"/usr/lib/sysusers.d/dbus.conf <<EOF
 u dbus - "D-Bus Legacy User"
 EOF
 
