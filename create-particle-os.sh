@@ -223,6 +223,9 @@ rm -fr "$PREPARE/usr/bin"
 mv "$PREPARE/usr/bin.usrmove-new" "$PREPARE/usr/bin"
 rm -fr "$PREPARE/usr/sbin"
 
+ln -s bin "$PREPARE/usr/sbin"
+
+
 mv $PREPARE/usr/lib64 $PREPARE/usr/lib/x86_64-linux-gnu
 ln -sfnr $PREPARE/usr/lib/x86_64-linux-gnu $PREPARE/usr/lib64
 
