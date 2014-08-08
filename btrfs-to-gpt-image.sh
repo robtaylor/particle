@@ -12,9 +12,7 @@ BTRFSIMAGE="$(readlink -f $1)"
 trap '
     ret=$?;
     if [[ $ROOT ]]; then
-        for i in /proc /run /boot /dev /sys ""; do
-            umount /run/installer-$ROOT/system$i || :
-        done
+        umount /run/installer-$ROOT/system$i || :
         rm -rf /run/installer-$ROOT
     fi
     [[ $DEV == /dev/loop* ]] && losetup -d $DEV
