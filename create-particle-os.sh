@@ -14,12 +14,15 @@ for i in "$PREPARE" "$DEST" "$MASTER" "$STORE" "$TMPSTORE"; do
     [[ -d "$i" ]] || exit 1
 done
 
+[[ -f "$TMPSTORE"/.in_progress ]] && exit 0
+> "$TMPSTORE"/.in_progress
 
 trap '
     ret=$?;
     for i in proc dev sys run; do
         umount "$DEST/$i" || :
     done
+    rm -f "$TMPSTORE"/.in_progress
     exit $ret;
     ' EXIT
 
@@ -36,20 +39,29 @@ mount --bind /sys "$DEST"/sys
 # packages wrongly install stuff here, but /run content does not belong on disk
 mount -t tmpfs tmpfs "$DEST"/run
 
-# --enablerepo=fedora-rawhide-kernel-nodebug \
 # short cut
 if [[ -f $DEST/var/lib/rpm/Packages ]]; then
+    yum --releasever="$RELEASE" --disablerepo='*' \
+        --enablerepo=fedora \
+	--enablerepo=fedora-rawhide-kernel-nodebug \
+        --nogpg --installroot="$DEST" \
+        --setopt=keepcache=0 \
+        --setopt=metadata_expire=1m \
+	clean metadata
+
     yum -y --releasever="$RELEASE" --disablerepo='*' \
 	--enablerepo=fedora \
+	--enablerepo=fedora-rawhide-kernel-nodebug \
 	--nogpg --installroot="$DEST" \
 	--setopt=keepcache=0 \
+        --setopt=metadata_expire=1m \
 	check-update \
 	&& exit 0
 
     for i in proc dev sys run; do
         umount "$DEST/$i" || :
     done
-    rm -fr "$DEST"/*
+    rm -fr "$DEST"/* "$TMPSTORE"/.in_progress
     exec "$SELF"
 fi
 
