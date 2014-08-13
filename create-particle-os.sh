@@ -206,6 +206,8 @@ rsync -Paqorx --delete-after "$INSTALL"/ "$PREPARE"/
 
 mv "$TMPSTORE"/${ARCH}/particle-22-${VERSION}.${ARCH}.rpm "$PREPARE"/usr/lib/rpm/particle-22-${VERSION}.${ARCH}.rpm
 
+rm -f "$PREPARE"/usr/sbin/fsck.btrfs
+ln -sfrn "$PREPARE"/usr/bin/true "$PREPARE"/usr/sbin/fsck.btrfs
 # set default target
 systemctl --root="$PREPARE" set-default multi-user.target
 
