@@ -108,7 +108,7 @@ mkdir -p /run/installer-$ROOT/system
 mount -o compress=lzo $SYSTEM_PART /run/installer-$ROOT/system
 
 btrfs subvolume create /run/installer-$ROOT/system/"root:root:org.particle.OS:$ARCH"
-btrfs subvolume set-default $(btrfs_find_id /run/installer-$ROOT/system/ "root:root:org.particle.OS:$ARCH") /run/installer-$ROOT/system
+#btrfs subvolume set-default $(btrfs_find_id /run/installer-$ROOT/system/ "root:root:org.particle.OS:$ARCH") /run/installer-$ROOT/system
 
 xz -cd $BTRFSIMAGE | btrfs receive -v /run/installer-$ROOT/system
 while read a a a g a a a a v; do
@@ -118,9 +118,10 @@ while read a a a g a a a a v; do
     [[ "$vol" == usr:* ]] && break
 done < <(btrfs subvolume list /run/installer-$ROOT/system)
 
-umount /run/installer-$ROOT/system
-mount -o compress=lzo $SYSTEM_PART /run/installer-$ROOT/system
+ln -s "$vol" /run/installer-$ROOT/system/usr
 
+umount /run/installer-$ROOT/system
+mount -o compress=lzo,subvol="root:root:org.particle.OS:$ARCH" $SYSTEM_PART /run/installer-$ROOT/system
 
 mkdir /run/installer-$ROOT/system/{boot,proc,run,var,sys,dev,etc,usr}
 mount -o ro,subvol="$vol" $SYSTEM_PART /run/installer-$ROOT/system/usr
