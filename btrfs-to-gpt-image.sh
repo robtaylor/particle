@@ -144,7 +144,7 @@ mkdir -p /run/installer-$ROOT/system/boot/particle
 cp /run/installer-$ROOT/system/usr/lib/modules/*/{vmlinuz,initrd} /run/installer-$ROOT/system/boot/particle
 cat > /run/installer-$ROOT/system/boot/loader/entries/particle.conf <<EOF
 title      Particle
-options    quiet libahci.ignore_sss=1 raid=noautodetect selinux=0 rhgb plymouth.enable=0 rd.plymouth=0 rw root=/dev/gpt-auto-root rootflags=subvol=root:root:org.particle.OS:$ARCH
+options    quiet libahci.ignore_sss=1 raid=noautodetect selinux=0 rhgb plymouth.enable=0 rd.plymouth=0 rw root=/dev/gpt-auto-root rootflags=subvol=root:root:org.particle.OS:$ARCH console=ttyS0,115200n81 console=tty0
 linux      /particle/vmlinuz
 initrd     /particle/initrd
 EOF
