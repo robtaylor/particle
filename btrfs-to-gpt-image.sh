@@ -8,11 +8,14 @@ fi
 
 IMAGE="$2"
 BTRFSIMAGE="$(readlink -f $1)"
+ARCH=$(uname -m)
 
 trap '
     ret=$?;
     if [[ $ROOT ]]; then
-        umount /run/installer-$ROOT/system$i || :
+        for i in /proc /run /boot /dev /sys /usr ""; do
+            mountpoint /run/installer-$ROOT/system$i &>/dev/null && umount /run/installer-$ROOT/system$i || :
+        done
         rm -rf /run/installer-$ROOT
     fi
     [[ $DEV == /dev/loop* ]] && losetup -d $DEV
@@ -59,11 +62,11 @@ parted /dev/$ROOT --script "mkpart System ext4 512Mib -1Mib"
 
 udevadm settle
 
-case "x`uname -m`" in
-        xx86_64)
+case "$ARCH" in
+        x86_64)
                 ROOT_UUID=4f68bce3-e8cd-4db1-96e7-fbcaf984b709
                 ;;
-        xi686|xi586|xi486|xi386)
+        i686|i586|i486|i386)
                 ROOT_UUID=44479540-f297-41b2-9af7-d131d5f0458a
                 ;;
         *)
@@ -89,18 +92,69 @@ udevadm settle
 
 rm -rf /run/installer-$ROOT
 
+btrfs_find_id() {
+    local id gen level path where="$1" what="$2"
+    while read id gen level path; do
+        [[ "$level" != 5 ]] && continue
+        [[ "$path" != $what ]] && continue
+        printf -- "%s\n" "$id"
+        return 0
+    done < <(btrfs subvolume list -at "$where")
+    return 1
+}
+
 # mount System
 mkdir -p /run/installer-$ROOT/system
-mount $SYSTEM_PART /run/installer-$ROOT/system
-(
-    cd /run/installer-$ROOT/system
-    xz -cd $BTRFSIMAGE | btrfs receive -v ./
-    while read a a a g a a a a v; do
-        [[ $v ]] || continue
-        gen="$g"
-        vol="$v"
-    done < <(btrfs subvolume list .)
-    btrfs subvolume snapshot -r "$vol" usr
-)
+mount -o compress=lzo $SYSTEM_PART /run/installer-$ROOT/system
+
+btrfs subvolume create /run/installer-$ROOT/system/"root:root:org.particle.OS:$ARCH"
+btrfs subvolume set-default $(btrfs_find_id /run/installer-$ROOT/system/ "root:root:org.particle.OS:$ARCH") /run/installer-$ROOT/system
+
+xz -cd $BTRFSIMAGE | btrfs receive -v /run/installer-$ROOT/system
+while read a a a g a a a a v; do
+    [[ $v ]] || continue
+    gen="$g"
+    vol="$v"
+    [[ "$vol" == usr:* ]] && break
+done < <(btrfs subvolume list /run/installer-$ROOT/system)
+
+umount /run/installer-$ROOT/system
+mount -o compress=lzo $SYSTEM_PART /run/installer-$ROOT/system
+
+
+mkdir /run/installer-$ROOT/system/{boot,proc,run,var,sys,dev,etc,usr}
+mount -o ro,subvol="$vol" $SYSTEM_PART /run/installer-$ROOT/system/usr
+
+ln -s ../run /run/installer-$ROOT/system/var/run
+ln -s ../run/lock /run/installer-$ROOT/system/var/lock
+for i in bin sbin lib lib64; do
+    ln -s usr/$i /run/installer-$ROOT/system/$i
+done
+
+mount $BOOT_PART /run/installer-$ROOT/system/boot
+# mount kernel filesystems
+mount --bind /proc /run/installer-$ROOT/system/proc
+mount --bind /dev /run/installer-$ROOT/system/dev
+mount --bind /sys /run/installer-$ROOT/system/sys
+mount --bind /run /run/installer-$ROOT/system/run
+
+chroot /run/installer-$ROOT/system/ gummiboot install --no-variables
+mkdir -p /run/installer-$ROOT/system/boot/particle
+cp /run/installer-$ROOT/system/usr/lib/modules/*/{vmlinuz,initrd} /run/installer-$ROOT/system/boot/particle
+cat > /run/installer-$ROOT/system/boot/loader/entries/particle.conf <<EOF
+title      Particle
+options    quiet libahci.ignore_sss=1 raid=noautodetect selinux=0 rhgb plymouth.enable=0 rd.plymouth=0 rw root=/dev/gpt-auto-root rootflags=subvol=root:root:org.particle.OS:$ARCH
+linux      /particle/vmlinuz
+initrd     /particle/initrd
+EOF
+
+for i in /proc /run /boot /dev /sys /usr; do
+    mountpoint /run/installer-$ROOT/system$i &>/dev/null && umount /run/installer-$ROOT/system$i || :
+done
+
+rm -fr /run/installer-$ROOT/system/*
+# workaround until systemd commit 5caeb7d6854e02321e0e00588e17412b161ef176 is available
+mkdir /run/installer-$ROOT/system/{boot,run}
+
 sync
 printf "\n### finished\n"
