@@ -6,7 +6,8 @@ SELF="$0"
 RELEASE=rawhide
 #KERNEL_REPO=fedora-rawhide-kernel-nodebug
 KERNEL_REPO=jwboyer-kernel-playground
-
+SYSTEMD_REPO=harald-systemd-kdbus-git
+EXTRA_REPOS="jwboyer-kernel-playground-fedora-rawhide.repo harald-systemd-kdbus-fedora-rawhide-git.repo"
 
 PARTICLE_ROOT=/mnt/particle
 
@@ -55,7 +56,8 @@ mount -t tmpfs tmpfs "$DEST"/run
 if [[ -f $DEST/var/lib/rpm/Packages ]]; then
     yum --releasever="$RELEASE" --disablerepo='*' \
         --enablerepo=fedora \
-	--enablerepo=fedora-rawhide-kernel-nodebug \
+	--enablerepo=$KERNEL_REPO \
+	--enablerepo=$SYSTEMD_REPO \
         --nogpg --installroot="$DEST" \
         --setopt=keepcache=0 \
         --setopt=metadata_expire=1m \
@@ -64,6 +66,7 @@ if [[ -f $DEST/var/lib/rpm/Packages ]]; then
     yum -y --releasever="$RELEASE" --disablerepo='*' \
 	--enablerepo=fedora \
 	--enablerepo=$KERNEL_REPO \
+	--enablerepo=$SYSTEMD_REPO \
 	--nogpg --installroot="$DEST" \
 	--setopt=keepcache=0 \
         --setopt=metadata_expire=1m \
@@ -99,15 +102,18 @@ EOF
 
 printf "\n### download and install base packages\n"
 yum -y --releasever="$RELEASE" --nogpg --installroot="$DEST" \
-    --disablerepo='*' --enablerepo=fedora install \
+    --disablerepo='*' \
+    --enablerepo=fedora \
+    --enablerepo=$SYSTEMD_REPO \
     --downloaddir=$STORE/packages \
     -c ${STORE}/installer/yum.conf \
+    install \
     systemd passwd yum fedora-release \
     procps-ng psmisc less vi tree bash-completion \
     gummiboot dracut dracut-config-generic binutils \
     iputils iproute \
     dosfstools btrfs-progs parted \
-    strace
+    strace linux-firmware
 
 # include the usb-storage kernel module
 cat > "$DEST"/etc/dracut.conf.d/usb.conf <<EOF
@@ -142,14 +148,17 @@ install_items+="/usr/lib/systemd/system/sysroot-usr.mount /usr/lib/systemd/syste
 EOF
 
 #cp /etc/yum.repos.d/fedora-rawhide-kernel-nodebug.repo $DEST/etc/yum.repos.d/fedora-rawhide-kernel-nodebug.repo
-cp /etc/yum.repos.d/jwboyer-kernel-playground-fedora-rawhide.repo $DEST/etc/yum.repos.d/
+for i in $EXTRA_REPOS; do
+	[[ -f /etc/yum.repos.d/"$i" ]] || continue
+        cp /etc/yum.repos.d/"$i" $DEST/etc/yum.repos.d/
+done
 
 rm -f $DEST/boot/*/*/initrd $DEST/boot/initramfs*
 
 printf "\n### download and install kernel\n"
 # install after systemd.rpm created the machine-id which kernel-install wants
 yum -y --releasever="$RELEASE" --disablerepo='*' \
-    --enablerepo=fedora --enablerepo=$KERNEL_REPO \
+    --enablerepo=$KERNEL_REPO \
     --nogpg --installroot="$DEST" \
     --downloaddir=$STORE/packages \
     -c ${STORE}/installer/yum.conf \
@@ -224,7 +233,8 @@ C /etc/login.defs - - - -
 EOF
 
 # copy PAM files to factory dir (PAM need to gain support for /usr/lib/pam.d/)
-mv $PREPARE/etc/pam.d/ $PREPARE/usr/share/factory/etc/
+cp -avr $PREPARE/etc/pam.d $PREPARE/usr/share/factory/etc/
+rm -fr $PREPARE/etc/pam.d
 mkdir $PREPARE/usr/share/factory/etc/security/
 mv $PREPARE/etc/security/pam_env.conf $PREPARE/usr/share/factory/etc/security/
 mv $PREPARE/etc/security/namespace.conf $PREPARE/usr/share/factory/etc/security/
