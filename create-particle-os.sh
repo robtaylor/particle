@@ -7,7 +7,7 @@ RELEASE=rawhide
 #KERNEL_REPO=fedora-rawhide-kernel-nodebug
 KERNEL_REPO=jwboyer-kernel-playground
 SYSTEMD_REPO=harald-systemd-kdbus-git
-EXTRA_REPOS="jwboyer-kernel-playground-fedora-rawhide.repo harald-systemd-kdbus-fedora-rawhide-git.repo"
+EXTRA_REPOS="jwboyer-kernel-playground-fedora-rawhide.repo harald-systemd-kdbus-git-fedora-rawhide.repo"
 
 PARTICLE_ROOT=/mnt/particle
 
@@ -108,7 +108,7 @@ yum -y --releasever="$RELEASE" --nogpg --installroot="$DEST" \
     --downloaddir=$STORE/packages \
     -c ${STORE}/installer/yum.conf \
     install \
-    systemd passwd yum fedora-release \
+    systemd passwd fedora-release \
     procps-ng psmisc less vi tree bash-completion \
     gummiboot dracut dracut-config-generic binutils \
     iputils iproute \
@@ -164,56 +164,15 @@ yum -y --releasever="$RELEASE" --disablerepo='*' \
     -c ${STORE}/installer/yum.conf \
     install kernel
 
-(
-cat <<EOF
-%define _use_internal_dependency_generator 0
-Name:		particle
-Version:	22
-Release:	$VERSION
-Summary:	particle fake provides
-License:        GPL
-EOF
-
-rpm -qa --root "$INSTALL" \
-    | fgrep -v 'gpg(' \
-    | egrep -v '=.*-.*-.*' \
-    | while read line; do
-    printf -- "Provides: %s\n" "$line"
-done
-
-rpm -qal --root "$INSTALL" \
-    | while read line; do
-    [[ "$line" == "(contains no files)" ]] && continue
-    [[ "$line" == ?*\ *? ]] && continue
-    printf -- "Provides: %s\n" "$line"
-done
-
-cat <<EOF
-
-%description
-particle fake provides
-
-%setup
-
-%build
-mkdir -p %{buildroot}/usr
-
-%files
-%exclude %dir /usr
-
-%changelog
-* Wed Aug 13 2014 Harald Hoyer <harald@redhat.com> 1-1
-- v1
-
-EOF
-) > "$TMPSTORE/particle.spec"
-
-rpmbuild --define "_sourcedir $TMPSTORE" --define "_specdir $TMPSTORE" --define "_builddir $TMPSTORE" \
-    --define "_srcrpmdir $TMPSTORE" --define "_rpmdir $TMPSTORE" -ba "$TMPSTORE/particle.spec"
+yum -y --releasever="$RELEASE" --nogpg --installroot="$DEST" \
+    --disablerepo='*' \
+    --enablerepo=fedora \
+    --enablerepo=$SYSTEMD_REPO \
+    --downloaddir=$STORE/packages \
+    -c ${STORE}/installer/yum.conf \
+    remove dracut
 
 rsync -Paqorx --delete-after "$INSTALL"/ "$PREPARE"/
-
-mv "$TMPSTORE"/${ARCH}/particle-22-${VERSION}.${ARCH}.rpm "$PREPARE"/usr/lib/rpm/particle-22-${VERSION}.${ARCH}.rpm
 
 rm -f "$PREPARE"/usr/sbin/fsck.btrfs
 ln -sfrn "$PREPARE"/usr/bin/true "$PREPARE"/usr/sbin/fsck.btrfs
@@ -230,35 +189,6 @@ mkdir -p $PREPARE/usr/share/factory/etc/
 mv "$PREPARE"/etc/login.defs "$PREPARE"/usr/share/factory/etc/
 cat > "$PREPARE"/usr/lib/tmpfiles.d/factory-shadow-utils.conf <<EOF
 C /etc/login.defs - - - -
-EOF
-
-# copy PAM files to factory dir (PAM need to gain support for /usr/lib/pam.d/)
-cp -avr $PREPARE/etc/pam.d $PREPARE/usr/share/factory/etc/
-rm -fr $PREPARE/etc/pam.d
-mkdir $PREPARE/usr/share/factory/etc/security/
-mv $PREPARE/etc/security/pam_env.conf $PREPARE/usr/share/factory/etc/security/
-mv $PREPARE/etc/security/namespace.conf $PREPARE/usr/share/factory/etc/security/
-mv $PREPARE/etc/security/limits.conf $PREPARE/usr/share/factory/etc/security/
-cat > $PREPARE/usr/lib/tmpfiles.d/factory-pam.conf <<EOF
-C /etc/pam.d - - - -
-C /etc/security - - - -
-F /etc/environment - - - - ""
-EOF
-
-# keep yum working
-mv $PREPARE/etc/yum $PREPARE/usr/share/factory/etc/
-mv $PREPARE/etc/yum.conf $PREPARE/usr/share/factory/etc/
-mv $PREPARE/etc/yum.repos.d/ $PREPARE/usr/share/factory/etc/
-mv $PREPARE/etc/pki/ $PREPARE/usr/share/factory/etc/
-rm -fr $PREPARE/usr/share/factory/etc/pki/ca-trust/extracted
-cat > $PREPARE/usr/lib/tmpfiles.d/factory-yum.conf <<EOF
-C /etc/yum.conf - - - -
-C /etc/yum - - - -
-C /etc/yum.repos.d - - - -
-EOF
-
-cat > $PREPARE/usr/lib/tmpfiles.d/factory-pki.conf <<EOF
-C /etc/pki - - - -
 EOF
 
 # D-Bus
