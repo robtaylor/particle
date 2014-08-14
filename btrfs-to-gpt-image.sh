@@ -154,8 +154,8 @@ for i in /proc /run /boot /dev /sys /usr; do
 done
 
 rm -fr /run/installer-$ROOT/system/*
-# workaround until systemd commit 5caeb7d6854e02321e0e00588e17412b161ef176 is available
-mkdir /run/installer-$ROOT/system/{boot,run}
+# let systemd mount /boot
+mkdir /run/installer-$ROOT/system/boot
 
 sync
 printf "\n### finished\n"
