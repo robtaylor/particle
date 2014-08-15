@@ -152,6 +152,8 @@ ln -snfr "$DEST"/usr/lib/systemd/system/sysroot-usr.mount "$DEST"/usr/lib/system
 # include the usb-storage kernel module
 cat > "$DEST"/etc/dracut.conf.d/particle.conf <<EOF
 install_items+="/usr/lib/systemd/system/sysroot-usr.mount /usr/lib/systemd/system/initrd-fs.target.requires/sysroot-usr.mount"
+early_microcode="no"
+reproducible="yes"
 EOF
 
 #cp /etc/yum.repos.d/fedora-rawhide-kernel-nodebug.repo $DEST/etc/yum.repos.d/fedora-rawhide-kernel-nodebug.repo
@@ -236,6 +238,13 @@ EOF
 	    [[ -f $PREPARE/boot/${f}-${v} ]] || continue
 	    cp --reflink=always -a $PREPARE/boot/${f}-${v} $v/$f
 	done
+	# fixup the initrd
+	if type -P cpio_fix_ino &>/dev/null; then
+	    if gzip -cd $v/initrd | cpio_fix_ino > $v/initrd.fixed; then
+		gzip -c -n -9 --rsyncable $v/initrd.fixed > $v/initrd
+		rm -f $v/initrd.fixed
+            fi
+	fi
     done
 )
 
