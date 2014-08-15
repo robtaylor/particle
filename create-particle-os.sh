@@ -63,15 +63,22 @@ if [[ -f $DEST/var/lib/rpm/Packages ]]; then
         --setopt=metadata_expire=1m \
 	clean metadata
 
-    yum -y --releasever="$RELEASE" --disablerepo='*' \
+    if yum -y --releasever="$RELEASE" --disablerepo='*' \
 	--enablerepo=fedora \
-	--enablerepo=$KERNEL_REPO \
-	--enablerepo=$SYSTEMD_REPO \
+        --exclude='kernel*' \
 	--nogpg --installroot="$DEST" \
 	--setopt=keepcache=0 \
         --setopt=metadata_expire=1m \
 	check-update \
-	&& exit 0
+	&& yum -y --releasever="$RELEASE" --disablerepo='*' \
+	--enablerepo=$KERNEL_REPO \
+	--nogpg --installroot="$DEST" \
+	--setopt=keepcache=0 \
+        --setopt=metadata_expire=1m \
+	check-update
+    then
+        exit 0
+    fi
 
     for i in proc dev sys run; do
         umount "$DEST/$i" || :
