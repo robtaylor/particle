@@ -1,13 +1,13 @@
 #!/bin/bash
 set -e
 
-if ! [[ -f "$1" ]] || [[ -z "$2" ]]; then
-    echo "Usage: $0 <btrfs-send-image.xz> <disk or image file to re-format>" >&2
+if ! [[ -e "$1" ]] || [[ -z "$2" ]]; then
+    echo "Usage: $0 <btrfs-send-image.xz|btrfs-subvolume> <disk or image file to re-format>" >&2
     exit 1
 fi
 
 IMAGE="$2"
-BTRFSIMAGE="$(readlink -f $1)"
+BTRFSSRC="$(readlink -f $1)"
 ARCH=$(uname -m)
 
 trap '
@@ -107,10 +107,14 @@ btrfs_find_id() {
 mkdir -p /run/installer-$ROOT/system
 mount -o compress=lzo $SYSTEM_PART /run/installer-$ROOT/system
 
-btrfs subvolume create /run/installer-$ROOT/system/"root:root:org.particle.OS:$ARCH"
-#btrfs subvolume set-default $(btrfs_find_id /run/installer-$ROOT/system/ "root:root:org.particle.OS:$ARCH") /run/installer-$ROOT/system
+btrfs subvolume create /run/installer-$ROOT/system/"root:default:org.particle.OS:$ARCH"
 
-xz -cd $BTRFSIMAGE | btrfs receive -v /run/installer-$ROOT/system
+if [ -f "$BTRFSSRC" ]; then
+    xz -cd "$BTRFSSRC" | btrfs receive -v /run/installer-$ROOT/system
+elif [ -d "$BTRFSSRC" ]; then
+    btrfs send "$BTRFSSRC" | btrfs receive -v /run/installer-$ROOT/system
+fi
+
 while read a a a g a a a a v; do
     [[ $v ]] || continue
     gen="$g"
@@ -121,7 +125,7 @@ done < <(btrfs subvolume list /run/installer-$ROOT/system)
 ln -s "$vol" /run/installer-$ROOT/system/usr
 
 umount /run/installer-$ROOT/system
-mount -o compress=lzo,subvol="root:root:org.particle.OS:$ARCH" $SYSTEM_PART /run/installer-$ROOT/system
+mount -o compress=lzo,subvol="root:default:org.particle.OS:$ARCH" $SYSTEM_PART /run/installer-$ROOT/system
 
 mkdir /run/installer-$ROOT/system/{boot,proc,run,var,sys,dev,etc,usr}
 mount -o ro,subvol="$vol" $SYSTEM_PART /run/installer-$ROOT/system/usr
@@ -140,14 +144,31 @@ mount --bind /sys /run/installer-$ROOT/system/sys
 mount --bind /run /run/installer-$ROOT/system/run
 
 chroot /run/installer-$ROOT/system/ gummiboot install --no-variables
-mkdir -p /run/installer-$ROOT/system/boot/particle
-cp /run/installer-$ROOT/system/usr/lib/modules/*/{vmlinuz,initrd} /run/installer-$ROOT/system/boot/particle
-cat > /run/installer-$ROOT/system/boot/loader/entries/particle.conf <<EOF
-title      Particle
-options    quiet libahci.ignore_sss=1 raid=noautodetect selinux=0 plymouth.enable=0 rd.plymouth=0 rw root=/dev/gpt-auto-root rootflags=subvol=root:root:org.particle.OS:$ARCH console=ttyS0,115200n81 console=tty0 kdbus
-linux      /particle/vmlinuz
-initrd     /particle/initrd
-EOF
+BOOT=/run/installer-$ROOT/system/boot
+mkdir -p $BOOT
+
+for kdir in /run/installer-$ROOT/system/usr/lib/modules/*; do
+    [[ -d $kdir ]] || continue
+    (
+        cd "$kdir"
+
+        for b in bootloader*.conf; do
+            # copy over the kernel and initrds
+            while read key val; do
+                case "$key" in
+                    linux|initrd)
+                        # replace \ with /
+                        p=${val//\\//}
+                        # create the base directory
+                        mkdir -p "$BOOT/${p%/*}"
+                        # and copy the file with the same basename
+                        cp "${p##*/}" "$BOOT/$p"
+                esac
+            done < "$b"
+            cp "$b" /run/installer-$ROOT/system/boot/loader/entries
+        done
+    )
+done
 
 for i in /proc /run /boot /dev /sys /usr; do
     mountpoint /run/installer-$ROOT/system$i &>/dev/null && umount /run/installer-$ROOT/system$i || :
