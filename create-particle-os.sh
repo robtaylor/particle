@@ -6,10 +6,11 @@ SELF="$0"
 RELEASE=rawhide
 KERNEL_REPO=fedora-rawhide-kernel-nodebug
 #KERNEL_REPO=jwboyer-kernel-playground
-SYSTEMD_REPO=harald-systemd-kdbus-git
+#SYSTEMD_REPO=harald-systemd-kdbus-git
 CPIO_REPO=harald-cpio-reproducible
 #EXTRA_REPOS="jwboyer-kernel-playground-fedora-rawhide.repo harald-systemd-kdbus-git-fedora-rawhide.repo harald-cpio-reproducible-fedora-rawhide.repo"
-EXTRA_REPOS="fedora-rawhide-kernel-nodebug.repo harald-systemd-kdbus-git-fedora-rawhide.repo harald-cpio-reproducible-fedora-rawhide.repo"
+#EXTRA_REPOS="fedora-rawhide-kernel-nodebug.repo harald-systemd-kdbus-git-fedora-rawhide.repo harald-cpio-reproducible-fedora-rawhide.repo"
+EXTRA_REPOS="fedora-rawhide-kernel-nodebug.repo harald-cpio-reproducible-fedora-rawhide.repo"
 
 PARTICLE_ROOT=/mnt/particle
 
@@ -20,7 +21,7 @@ INSTALL="${PARTICLE_ROOT}/install"
 STORE="${PARTICLE_ROOT}/store"
 TMPSTORE="${PARTICLE_ROOT}/tmp"
 ARCH="$(arch)"
-OS="org.particle.OS"
+OS="org.fedoraproject.FedoraWorkstation"
 OS_ARCH="$OS:$ARCH"
 VERSION="$(date -u +'%Y%m%d%H%M%S')"
 SNAPSHOT_NAME="usr:$OS_ARCH:$VERSION"
@@ -59,7 +60,6 @@ if [[ -f $DEST/var/lib/rpm/Packages ]]; then
     yum --releasever="$RELEASE" --disablerepo='*' \
         --enablerepo=fedora \
 	--enablerepo=$KERNEL_REPO \
-	--enablerepo=$SYSTEMD_REPO \
 	--enablerepo=$CPIO_REPO \
         --nogpg --installroot="$DEST" \
         --setopt=keepcache=0 \
@@ -103,7 +103,6 @@ printf "\n### download and install base packages\n"
 yum -y --releasever="$RELEASE" --nogpg --installroot="$DEST" \
     --disablerepo='*' \
     --enablerepo=fedora \
-    --enablerepo=$SYSTEMD_REPO \
     --enablerepo=$CPIO_REPO \
     --downloaddir=$STORE/packages \
     -c ${STORE}/installer/yum.conf \
@@ -178,10 +177,25 @@ yum -y --releasever="$RELEASE" --disablerepo='*' \
     -c ${STORE}/installer/yum.conf \
     install kernel
 
+
 yum -y --releasever="$RELEASE" --nogpg --installroot="$DEST" \
     --disablerepo='*' \
     --enablerepo=fedora \
-    --enablerepo=$SYSTEMD_REPO \
+    --enablerepo=$CPIO_REPO \
+    --downloaddir=$STORE/packages \
+    -c ${STORE}/installer/yum.conf \
+    --exclude 'kernel*' \
+    --exclude 'plymouth*' \
+    --exclude 'dracut*' \
+    --exclude 'chrony*' \
+    --exclude 'abrt*' \
+    --skip-broken \
+    groupinstall "Fedora Workstation"
+
+
+yum -y --releasever="$RELEASE" --nogpg --installroot="$DEST" \
+    --disablerepo='*' \
+    --enablerepo=fedora \
     --downloaddir=$STORE/packages \
     -c ${STORE}/installer/yum.conf \
     remove dracut
@@ -361,12 +375,29 @@ fi
 
 LATEST="$STORE/images/usr:$OS_ARCH:latest.btrfs.xz"
 
-if ! [[ -f "$LATEST" ]] || (( ($(date +%s) - $(stat -L --format %Y "$LATEST" )) > (24*60*60) )); then
+if ! [[ -f "$LATEST" ]] || (( ($(date +%s) - $(stat -L --format %Y "$LATEST" )) > (7*24*60*60) )); then
     btrfs send "$SNAPSHOT_NAME" -f "$TMPSTORE/$SNAPSHOT_NAME.btrfs"
     xz -9 -T0 "$TMPSTORE/$SNAPSHOT_NAME.btrfs"
     mv "$TMPSTORE/$SNAPSHOT_NAME.btrfs.xz" $STORE/images/
     ln -sfn "$SNAPSHOT_NAME.btrfs.xz" "$LATEST"
 fi
+
+
+cd "$STORE/images"
+for i in *; do
+    [[ -L $i ]]  && continue
+    [[ -f "../torrents/images/$i.torrent" ]] && continue
+    mktorrent -o ../torrents/images/"$i".torrent -w "http://particles.surfsite.org/images/$i" -a 'udp://tracker.openbittorrent.com:80/announce' "$i"
+done
+
+cd "$STORE/increment"
+
+for i in *; do
+    [[ -L $i ]]  && continue
+    [[ -f ../torrents/increment/"$i".torrent ]] && continue
+    mktorrent -o ../torrents/increment/"$i".torrent -w "http://particles.surfsite.org/increment/$i" -a 'udp://tracker.openbittorrent.com:80/announce' "$i"
+done
+
 
 chcon -R --type=httpd_sys_content_t $STORE
 chmod -R a+r  $STORE
