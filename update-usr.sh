@@ -1,34 +1,28 @@
 #!/bin/bash
 set -e
+set -o pipefail
 
-ROOT=/run/root
-
+readonly ROOT="$(mktemp --tmpdir="/run/" -d -t updateusr.XXXXXX)"
+readonly USRDIR=$(readlink -f ${1:-/usr})
 trap '
     ret=$?;
-    rm -f "$ROOT"/update.img
+    rm -f "$ROOT"/update.img "$ROOT"/update.torrent*
     mountpoint -q "$ROOT" && umount "$ROOT"
-    rmdir /run/root
+    rmdir "$ROOT"
     exit $ret;
     ' EXIT
 
 # clean up after ourselves no matter how we die.
 trap 'exit 1;' SIGINT
 
-DEV=$(findmnt -e -v -n -o 'SOURCE' --target /usr)
-[[ /dev/gpt-auto-root -ef $DEV ]]
+mntp="$USRDIR"
+
+while ! DEV=$(findmnt -e -v -n -o 'SOURCE' --target "$mntp"); do
+    mntp=${mntp%/*}
+done
 
 mkdir -p "$ROOT"
 mount "$DEV" -o subvol=/ "$ROOT"
-
-ARCH=$(uname -m)
-case "$ARCH" in
-    i686|i586|i486|i386)
-        ARCH=i686;;
-esac
-
-. /usr/lib/os-release
-
-USRVOL="$ID:$ARCH"
 
 vercmp() {
     local _n1=(${1//./ }) _op=$2 _n2=(${3//./ }) _i _res
@@ -74,9 +68,8 @@ btrfs_find_usr_os() {
 }
 
 btrfs_find_newest() {
-    local ROOT="$1" USRVOL="$2"
     declare -a vols
-    readarray -t vols < <(btrfs_find_usr_os "$ROOT" "$USRVOL")
+    readarray -t vols < <(btrfs_find_usr_os "$1" "$2")
 
     maxversion=0
     maxindex=-1
@@ -89,57 +82,108 @@ btrfs_find_newest() {
     done
 
     if (( $maxindex == -1 )); then
-        printf -- "btrfs /usr subvolume for $root_os:$root_arch not found\n" >&2
+        printf -- "btrfs subvolume for $1 not found\n" >&2
         exit 1
     fi
 
     printf -- "${vols[$maxindex]}\n"
 }
 
+currentsubvol=$(btrfs_subvolume_name "$USRDIR")
+USRVOL=${currentsubvol##usr:}
+USRVOL=${USRVOL%:*}
 usrsubvol=$(btrfs_find_newest "$ROOT" "$USRVOL")
+
+clean_vols()
+{
+    declare -a vols
+    readarray -t vols < <(btrfs_find_usr_os "$ROOT" "$USRVOL")
+
+    for (( i=0; i < ${#vols[@]}; i++)); do
+        [[ "${vols[$i]}" == "$usrsubvol" ]] && continue
+        [[ "${vols[$i]}" == "$currentsubvol" ]] && continue
+
+        printf -- "Removing old volume: %s\n" "${vols[$i]}"
+
+        for kdir in "$ROOT"/"${vols[$i]}"/lib/modules/*; do
+            [[ -d $kdir ]] || continue
+            (
+                cd "$kdir"
+                for b in bootloader*.conf; do
+                    [[ -f "$b" ]] || continue
+                    # copy over the kernel and initrds
+                    while read key val; do
+                        case "$key" in
+                            linux|initrd)
+                                # replace \ with /
+                                p=${val//\\//}
+                                # create the base directory
+                                rm -f "/boot/${p%/*}"/$key
+                                rmdir "/boot/${p%/*}" &>/dev/null || :
+                        esac
+                    done < "$b"
+                    rm -f /boot/loader/entries/"$b"
+                done
+            )
+        done
+
+        btrfs subvolume delete "$ROOT"/"${vols[$i]}"
+    done
+}
 
 while true; do
     [[ -d "$ROOT/$usrsubvol" ]] || exit 0
 
     if ! curl --head -s --globoff --location --retry 3 --fail --output /dev/null -- \
-        "http://particles.surfsite.org/increment/$usrsubvol.btrfsinc.xz"; then
-        printf -- "No further updates available.\n"
-        exit 0
+        "http://particles.surfsite.org/torrents/increment/$usrsubvol.btrfsinc.xz.torrent"; then
+        printf -- "No further updates available. Latest is $usrsubvol\n"
+        break
     fi
 
     curl --globoff --location --retry 3 --fail --show-error --output - -- \
-        "http://particles.surfsite.org/increment/$usrsubvol.btrfsinc.xz" \
-        > "$ROOT"/update.img
+        "http://particles.surfsite.org/torrents/increment/$usrsubvol.btrfsinc.xz.torrent" \
+        > "$ROOT"/update.torrent
+
+    ctorrent -D 10000000 -e 0 -a -s "$ROOT"/update.img "$ROOT"/update.torrent </dev/null
 
     oldusrsubvol="$usrsubvol"
+
     xzcat < "$ROOT"/update.img | btrfs receive "$ROOT"
+
+    rm -f "$ROOT"/update.img "$ROOT"/update.torrent*
+
     usrsubvol=$(btrfs_find_newest "$ROOT" "$USRVOL")
 
-    [[ $oldusrsubvol == "$usrsubvol" ]] && exit 0
+    [[ $oldusrsubvol == "$usrsubvol" ]] && break
 
-    for kdir in "$ROOT"/"$usrsubvol"/lib/modules/*; do
-        [[ -d $kdir ]] || continue
-        (
-            cd "$kdir"
-
-            for b in bootloader*.conf; do
-                # copy over the kernel and initrds
-                while read key val; do
-                    case "$key" in
-                        linux|initrd)
-                            # replace \ with /
-                            p=${val//\\//}
-                            # create the base directory
-                            mkdir -p "/boot/${p%/*}"
-                            # and copy the file with the same basename
-                            cp "${p##*/}" "/boot/$p"
-                    esac
-                done < "$b"
-                cp "$b" /boot/loader/entries
-            done
-        )
-    done
     printf -- "Installed $usrsubvol\n"
+    clean_vols
+done
+
+for kdir in "$ROOT"/"$usrsubvol"/lib/modules/*; do
+    [[ -d $kdir ]] || continue
+    (
+        cd "$kdir"
+        for b in bootloader*.conf; do
+            [[ -f "$b" ]] || continue
+            [[ -f /boot/loader/entries/"$b" ]] && continue
+            printf -- "Installing bootloader $b for $usrsubvol\n"
+
+            # copy over the kernel and initrds
+            while read key val; do
+                case "$key" in
+                    linux|initrd)
+                        # replace \ with /
+                        p=${val//\\//}
+                        # create the base directory
+                        mkdir -p "/boot/${p%/*}"
+                        # and copy the file with the same basename
+                        cp "${p##*/}" "/boot/$p"
+                esac
+            done < "$b"
+            cp "$b" /boot/loader/entries
+        done
+    )
 done
 
 exit 0
