@@ -332,8 +332,19 @@ ln -s bin "$PREPARE/usr/sbin"
 mv $PREPARE/usr/lib64 $PREPARE/usr/lib/x86_64-linux-gnu
 ln -sfnr $PREPARE/usr/lib/x86_64-linux-gnu $PREPARE/usr/lib64
 
+curl --globoff --location --retry 3 --fail --show-error --output - -- \
+    'https://raw.githubusercontent.com/haraldh/particle/master/btrfs-to-gpt-image.sh' \
+    > $PREPARE/usr/bin/system-to-gpt-image
+
+curl --globoff --location --retry 3 --fail --show-error --output - -- \
+    'https://raw.githubusercontent.com/haraldh/particle/master/update-usr.sh' \
+    > $PREPARE/usr/bin/system-update
+
 for i in \
     $PREPARE/usr \
+    $PREPARE/usr/bin/system-to-gpt-image \
+    $PREPARE/usr/bin/system-update \
+    $PREPARE/usr/lib/os-release \
     $PREPARE/usr/lib/rpm/macros.d/macros.rpmdb \
     $PREPARE/usr/lib/rpm/macros.d \
     $PREPARE/usr/lib/rpm \
@@ -350,7 +361,7 @@ for i in \
     $PREPARE/usr/share \
     ; do
     [[ -e $i ]] || continue
-    touch -r $PREPARE/etc/os-release "$i"
+    touch -r $PREPARE/etc/system-release "$i"
 done
 
 touch -r $PREPARE/usr/lib/locale/locale-archive.tmpl $PREPARE/usr/lib/locale/locale-archive
@@ -367,7 +378,6 @@ done
 	rm -fr "$i"
     done
 )
-
 
 cd  "$MASTER"
 while read a a a g a a a a v; do
