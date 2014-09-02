@@ -225,8 +225,24 @@ cat > "$PREPARE"/usr/lib/tmpfiles.d/factory-dbus.conf <<EOF
 C /etc/dbus-1 - - - -
 EOF
 
-cat > "$PREPARE"/usr/lib/sysusers.d/dbus.conf <<EOF
+cat > "$PREPARE"/usr/lib/sysusers.d/fedora-workaround.conf <<EOF
+u gdm - "GDM User"
+g gdm - -
 u dbus - "D-Bus Legacy User"
+u usbmuxd - -
+u colord - -
+g colord - -
+g kvm - -
+u abrt - -
+u lp - -
+u apache - -
+g man - -
+g openvpn - -
+u radvd - -
+u polkitd - -
+u rtkit - -
+u pulse - -
+g avahi - -
 EOF
 
 # make sure we always have a working root login
