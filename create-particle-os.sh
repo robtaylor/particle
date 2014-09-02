@@ -4,10 +4,12 @@ set -e
 
 SELF="$0"
 RELEASE=rawhide
-#KERNEL_REPO=fedora-rawhide-kernel-nodebug
-KERNEL_REPO=jwboyer-kernel-playground
+KERNEL_REPO=fedora-rawhide-kernel-nodebug
+#KERNEL_REPO=jwboyer-kernel-playground
 SYSTEMD_REPO=harald-systemd-kdbus-git
-EXTRA_REPOS="jwboyer-kernel-playground-fedora-rawhide.repo harald-systemd-kdbus-git-fedora-rawhide.repo"
+CPIO_REPO=harald-cpio-reproducible
+#EXTRA_REPOS="jwboyer-kernel-playground-fedora-rawhide.repo harald-systemd-kdbus-git-fedora-rawhide.repo harald-cpio-reproducible-fedora-rawhide.repo"
+EXTRA_REPOS="fedora-rawhide-kernel-nodebug.repo harald-systemd-kdbus-git-fedora-rawhide.repo harald-cpio-reproducible-fedora-rawhide.repo"
 
 PARTICLE_ROOT=/mnt/particle
 
@@ -58,6 +60,7 @@ if [[ -f $DEST/var/lib/rpm/Packages ]]; then
         --enablerepo=fedora \
 	--enablerepo=$KERNEL_REPO \
 	--enablerepo=$SYSTEMD_REPO \
+	--enablerepo=$CPIO_REPO \
         --nogpg --installroot="$DEST" \
         --setopt=keepcache=0 \
         --setopt=metadata_expire=1m \
@@ -96,22 +99,12 @@ ln -fs ../run/lock "$DEST"/var/lock
 # make resolver work inside the chroot, yum will need it if called a second time
 ln -fs /run/systemd/resolve/resolv.conf "$DEST"/etc
 
-# at bootup mount / read-writable
-cat > "$DEST"/etc/fstab <<EOF
-ROOT       /               auto defaults           0 0
-EOF
-
-# kernel-install config
-mkdir -p "$DEST"/etc/kernel
-cat > "$DEST"/etc/kernel/cmdline <<EOF
-raid=noautodetect quiet audit=0
-EOF
-
 printf "\n### download and install base packages\n"
 yum -y --releasever="$RELEASE" --nogpg --installroot="$DEST" \
     --disablerepo='*' \
     --enablerepo=fedora \
     --enablerepo=$SYSTEMD_REPO \
+    --enablerepo=$CPIO_REPO \
     --downloaddir=$STORE/packages \
     -c ${STORE}/installer/yum.conf \
     install \
@@ -149,9 +142,21 @@ EOF
 
 ln -snfr "$DEST"/usr/lib/systemd/system/sysroot-usr.mount "$DEST"/usr/lib/systemd/system/initrd-fs.target.requires/sysroot-usr.mount
 
+cat > "$DEST"/usr/lib/systemd/system/sysroot.mount <<EOF
+[Unit]
+Before=initrd-root-fs.target
+ConditionPathExists=/etc/initrd-release
+
+[Mount]
+What=/dev/gpt-auto-root
+Where=/sysroot
+Type=btrfs
+Options=rw,subvol=root:default:org.particle.OS:$ARCH
+EOF
+
+
 # include the usb-storage kernel module
 cat > "$DEST"/etc/dracut.conf.d/particle.conf <<EOF
-install_items+="/usr/lib/systemd/system/sysroot-usr.mount /usr/lib/systemd/system/initrd-fs.target.requires/sysroot-usr.mount"
 early_microcode="no"
 reproducible="yes"
 EOF
@@ -238,15 +243,34 @@ EOF
 	    [[ -f $PREPARE/boot/${f}-${v} ]] || continue
 	    cp --reflink=always -a $PREPARE/boot/${f}-${v} $v/$f
 	done
-	# fixup the initrd
-	if type -P cpio_fix_ino &>/dev/null; then
-	    if gzip -cd $v/initrd | cpio_fix_ino > $v/initrd.fixed; then
-		gzip -c -n -9 --rsyncable $v/initrd.fixed > $v/initrd
-		rm -f $v/initrd.fixed
-            fi
-	fi
+
+	(
+	    cd $PREPARE
+	    (
+		echo "./usr/lib/systemd/system/sysroot.mount"
+		echo "./usr/lib/systemd/system/sysroot-usr.mount"
+		echo "./usr/lib/systemd/system/initrd-fs.target.requires"
+		echo "./usr/lib/systemd/system/initrd-fs.target.requires/sysroot-usr.mount"
+	    ) | cpio -H newc -o --quiet | gzip -n -9 --rsyncable > $PREPARE/usr/lib/modules/$v/initrd.root
+
+	)
+
+	# vfat does not like ":" in filenames
+	cat > $v/bootloader-${OS}-${ARCH}-${VERSION}.conf <<EOF
+title      $OS $VERSION $ARCH
+version    $VERSION
+options    quiet raid=noautodetect rw console=ttyS0,115200n81 console=tty0 kdbus
+linux      /${OS}-${ARCH}/${VERSION}/vmlinuz
+initrd     /${OS}-${ARCH}/${VERSION}/initrd
+initrd     /${OS}-${ARCH}/${VERSION}/initrd.root
+EOF
+
+	touch -r $v/kernel $v/{initrd,initrd.root,vmlinuz,bootloader-${OS}-${ARCH}-${VERSION}.conf}
     done
 )
+
+rm -f $PREPARE/usr/lib/systemd/system/sysroot-usr.mount \
+    $PREPARE/usr/lib/systemd/system/initrd-fs.target.requires/sysroot-usr.mount
 
 
 rm -rf -- "$PREPARE/usr/bin.usrmove-new"
@@ -322,7 +346,7 @@ while read a a a g a a a a v; do
     vol="$v"
 done < <(btrfs subvolume list usr)
 
-rsync -Pavorxc --delete-after "$PREPARE"/usr/ "$MASTER"/usr/
+rsync -Pavorxc --inplace --delete-after "$PREPARE"/usr/ "$MASTER"/usr/
 
 btrfs subvolume snapshot -r usr "$SNAPSHOT_NAME"
 
