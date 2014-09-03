@@ -149,7 +149,7 @@ while true; do
     [[ $PARTICLE_BASEURL_INC ]] || PARTICLE_BASEURL_INC='http://particles.surfsite.org/increment/'
 
     if [[ $PARTICLE_BASEURL_TORRENT_INC ]]; then
-        curl --globoff --location --retry 3 --fail --show-error --output - -- \
+        curl -s --globoff --location --retry 3 --fail --show-error --output - -- \
             "$PARTICLE_BASEURL_TORRENT_INC/$usrsubvol.btrfsinc.xz.torrent" \
             > "$ROOT"/update.torrent || :
 
