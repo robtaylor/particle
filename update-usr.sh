@@ -151,6 +151,7 @@ while true; do
     if [[ $PARTICLE_BASEURL_TORRENT_INC ]] \
         && curl --head -s --globoff --location --retry 3 --fail --output /dev/null -- \
             "$PARTICLE_BASEURL_TORRENT_INC/$usrsubvol.btrfsinc.xz.torrent" ; then
+
         curl --globoff --location --retry 3 --fail --show-error --output - -- \
             "$PARTICLE_BASEURL_TORRENT_INC/$usrsubvol.btrfsinc.xz.torrent" \
             > "$ROOT"/update.torrent || :
