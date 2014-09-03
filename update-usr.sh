@@ -145,7 +145,7 @@ while true; do
 
     oldusrsubvol="$usrsubvol"
 
-    . "$usrsubvol"/lib/os-release
+    . "$ROOT"/"$usrsubvol"/lib/os-release
     [[ $PARTICLE_BASEURL_INC ]] || PARTICLE_BASEURL_INC='http://particles.surfsite.org/increment/'
 
     if [[ $PARTICLE_BASEURL_TORRENT_INC ]]; then
