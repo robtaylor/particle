@@ -137,23 +137,41 @@ while true; do
 
     clean_vols
 
-    if ! curl --head -s --globoff --location --retry 3 --fail --output /dev/null -- \
-        "http://particles.surfsite.org/torrents/increment/$usrsubvol.btrfsinc.xz.torrent"; then
-        printf -- "No further updates available. Latest is $usrsubvol\n"
-        break
-    fi
-
-    curl --globoff --location --retry 3 --fail --show-error --output - -- \
-        "http://particles.surfsite.org/torrents/increment/$usrsubvol.btrfsinc.xz.torrent" \
-        > "$ROOT"/update.torrent
-
-    ctorrent -D 10000000 -e 0 -a -s "$ROOT"/update.img "$ROOT"/update.torrent </dev/null
+    unset \
+        PARTICLE_BASEURL_TORRENT_INC \
+        PARTICLE_BASEURL_INC \
+        PARTICLE_BASEURL_TORRENT_IMG \
+        PARTICLE_BASEURL_IMG
 
     oldusrsubvol="$usrsubvol"
 
-    xzcat < "$ROOT"/update.img | btrfs receive "$ROOT"
+    . "$usrsubvol"/lib/os-release
+    [[ $PARTICLE_BASEURL_INC ]] || PARTICLE_BASEURL_INC='http://particles.surfsite.org/increment/'
 
-    rm -f "$ROOT"/update.img "$ROOT"/update.torrent*
+    if [[ $PARTICLE_BASEURL_TORRENT_INC ]]; then
+        curl --globoff --location --retry 3 --fail --show-error --output - -- \
+            "$PARTICLE_BASEURL_TORRENT_INC/$usrsubvol.btrfsinc.xz.torrent" \
+            > "$ROOT"/update.torrent || :
+
+        ctorrent -D 10000000 -e 0 -a -s "$ROOT"/update.img "$ROOT"/update.torrent </dev/null || :
+        if [[ -f "$ROOT"/update.img ]]; then
+            xzcat < "$ROOT"/update.img | btrfs receive "$ROOT" || rm -f "$ROOT"/update.img
+        fi
+    fi
+
+    if ! [[ -f "$ROOT"/update.img ]]; then
+        if ! curl --head -s --globoff --location --retry 3 --fail --output /dev/null -- \
+            "$PARTICLE_BASEURL_INC/$usrsubvol.btrfsinc.xz"; then
+            printf -- "No further updates available. Latest is $usrsubvol\n"
+            break
+        fi
+
+        curl --globoff --location --retry 3 --fail --show-error --output - -- \
+            "$PARTICLE_BASEURL_INC/$usrsubvol.btrfsinc.xz" \
+            | xzcat | btrfs receive "$ROOT"
+    else
+        rm -f "$ROOT"/update.img "$ROOT"/update.torrent*
+    fi
 
     usrsubvol=$(btrfs_find_newest "$ROOT" "$USRVOL")
 
