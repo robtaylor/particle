@@ -131,10 +131,10 @@ EOF
 (
     printf -- "BUILD_ID=$VERSION\n"
     printf -- "ID=$OS\n"
-    printf -- "PARTICLE_BASEURL_TORRENT_INC='http://particles.surfsite.org/torrents/increment/'"
-    printf -- "PARTICLE_BASEURL_INC='http://particles.surfsite.org/increment/'"
-    printf -- "PARTICLE_BASEURL_TORRENT_IMG='http://particles.surfsite.org/torrents/images/'"
-    printf -- "PARTICLE_BASEURL_IMG='http://particles.surfsite.org/images/'"
+    printf -- "PARTICLE_BASEURL_TORRENT_INC='http://particles.surfsite.org/torrents/increment/'\n"
+    printf -- "PARTICLE_BASEURL_INC='http://particles.surfsite.org/increment/'\n"
+    printf -- "PARTICLE_BASEURL_TORRENT_IMG='http://particles.surfsite.org/torrents/images/'\n"
+    printf -- "PARTICLE_BASEURL_IMG='http://particles.surfsite.org/images/'\n"
 ) >> $INSTALL/etc/os-release
 
 
@@ -407,7 +407,7 @@ btrfs subvolume snapshot -r "usr:$OS_ARCH" "$SNAPSHOT_NAME"
 #btrfs subvolume find-new | fgrep -m 1 -q inode || exit 0
 
 if [[ $vol != "usr:$OS_ARCH" ]]; then
-    btrfs send -p "$vol" "$SNAPSHOT_NAME" -f $TMPSTORE/usr:$OS_ARCH:"${vol##*:}-$VERSION".btrfsinc
+    btrfs send -c "$vol" "$SNAPSHOT_NAME" -f $TMPSTORE/usr:$OS_ARCH:"${vol##*:}-$VERSION".btrfsinc
     xz -9 -T0 $TMPSTORE/usr:$OS_ARCH:"${vol##*:}-$VERSION".btrfsinc
     f="usr:$OS_ARCH:"${vol##*:}-$VERSION".btrfsinc.xz"
     mv "$TMPSTORE/$f" $STORE/increment/
