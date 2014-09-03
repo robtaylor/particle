@@ -2,6 +2,12 @@
 
 set -e
 
+#OS="org.fedoraproject.FedoraWorkstation"
+#OS_COMPS="Fedora Workstation"
+
+OS=${1:-org.fedoraproject.particle}
+OS_COMPS=$2
+
 SELF="$0"
 RELEASE=rawhide
 KERNEL_REPO=fedora-rawhide-kernel-nodebug
@@ -14,29 +20,32 @@ EXTRA_REPOS="fedora-rawhide-kernel-nodebug.repo harald-cpio-reproducible-fedora-
 
 PARTICLE_ROOT=/mnt/particle
 
-DEST="${PARTICLE_ROOT}/install"
-MASTER="${PARTICLE_ROOT}/master"
-PREPARE="${PARTICLE_ROOT}/prepare"
 INSTALL="${PARTICLE_ROOT}/install"
+PREPARE="${PARTICLE_ROOT}/prepare"
+MASTER="${PARTICLE_ROOT}/master"
 STORE="${PARTICLE_ROOT}/store"
 TMPSTORE="${PARTICLE_ROOT}/tmp"
 ARCH="$(arch)"
-OS="org.fedoraproject.FedoraWorkstation"
 OS_ARCH="$OS:$ARCH"
 VERSION="$(date -u +'%Y%m%d%H%M%S')"
 SNAPSHOT_NAME="usr:$OS_ARCH:$VERSION"
 
-for i in "$PREPARE" "$DEST" "$MASTER" "$STORE" "$TMPSTORE"; do
+for i in "$PREPARE" "$INSTALL" "$MASTER" "$STORE" "$TMPSTORE"; do
     [[ -d "$i" ]] || exit 1
 done
 
 [[ -f "$TMPSTORE"/.in_progress ]] && exit 0
 > "$TMPSTORE"/.in_progress
 
+mkdir -p "$INSTALL/$OS"
+INSTALL="$INSTALL/$OS"
+mkdir -p "$PREPARE/$OS"
+PREPARE="$PREPARE/$OS"
+
 trap '
     ret=$?;
     for i in proc dev sys run; do
-        umount "$DEST/$i" || :
+        umount "$INSTALL/$i" || :
     done
     rm -f "$TMPSTORE"/.in_progress
     exit $ret;
@@ -45,23 +54,23 @@ trap '
 # clean up after ourselves no matter how we die.
 trap 'exit 1;' SIGINT
 
-mkdir -p "$DEST"/{proc,run,sys,dev}
+mkdir -p "$INSTALL"/{proc,run,sys,dev}
 
 # mount kernel filesystems
-mount --bind /proc "$DEST"/proc
-mount --bind /dev "$DEST"/dev
-mount --bind /sys "$DEST"/sys
+mount --bind /proc "$INSTALL"/proc
+mount --bind /dev "$INSTALL"/dev
+mount --bind /sys "$INSTALL"/sys
 
 # packages wrongly install stuff here, but /run content does not belong on disk
-mount -t tmpfs tmpfs "$DEST"/run
+mount -t tmpfs tmpfs "$INSTALL"/run
 
 # short cut
-if [[ -f $DEST/var/lib/rpm/Packages ]]; then
+if [[ -f $INSTALL/var/lib/rpm/Packages ]]; then
     yum --releasever="$RELEASE" --disablerepo='*' \
         --enablerepo=fedora \
 	--enablerepo=$KERNEL_REPO \
 	--enablerepo=$CPIO_REPO \
-        --nogpg --installroot="$DEST" \
+        --nogpg --installroot="$INSTALL" \
         --setopt=keepcache=0 \
         --setopt=metadata_expire=1m \
 	clean metadata
@@ -69,13 +78,13 @@ if [[ -f $DEST/var/lib/rpm/Packages ]]; then
     if yum -y --releasever="$RELEASE" --disablerepo='*' \
 	--enablerepo=fedora \
         --exclude='kernel*' \
-	--nogpg --installroot="$DEST" \
+	--nogpg --installroot="$INSTALL" \
 	--setopt=keepcache=0 \
         --setopt=metadata_expire=1m \
 	check-update \
 	&& yum -y --releasever="$RELEASE" --disablerepo='*' \
 	--enablerepo=$KERNEL_REPO \
-	--nogpg --installroot="$DEST" \
+	--nogpg --installroot="$INSTALL" \
 	--setopt=keepcache=0 \
         --setopt=metadata_expire=1m \
 	check-update
@@ -84,23 +93,23 @@ if [[ -f $DEST/var/lib/rpm/Packages ]]; then
     fi
 
     for i in proc dev sys run; do
-        umount "$DEST/$i" || :
+        umount "$INSTALL/$i" || :
     done
-    rm -fr "$DEST"/* "$TMPSTORE"/.in_progress
+    rm -fr "$INSTALL"/* "$TMPSTORE"/.in_progress
     exec "$SELF"
 fi
 
 # create base directories"
 # include /var links because yum itself messes up the directories which need to be symlinks
-mkdir -p "$DEST"/{boot,proc,run,var,sys,dev,etc,var/tmp}
-ln -fs ../run "$DEST"/var/run
-ln -fs ../run/lock "$DEST"/var/lock
+mkdir -p "$INSTALL"/{boot,proc,run,var,sys,dev,etc,var/tmp}
+ln -fs ../run "$INSTALL"/var/run
+ln -fs ../run/lock "$INSTALL"/var/lock
 
 # make resolver work inside the chroot, yum will need it if called a second time
-ln -fs /run/systemd/resolve/resolv.conf "$DEST"/etc
+ln -fs /run/systemd/resolve/resolv.conf "$INSTALL"/etc
 
 printf "\n### download and install base packages\n"
-yum -y --releasever="$RELEASE" --nogpg --installroot="$DEST" \
+yum -y --releasever="$RELEASE" --nogpg --installroot="$INSTALL" \
     --disablerepo='*' \
     --enablerepo=fedora \
     --enablerepo=$CPIO_REPO \
@@ -110,24 +119,28 @@ yum -y --releasever="$RELEASE" --nogpg --installroot="$DEST" \
     systemd passwd fedora-release \
     procps-ng psmisc less vi tree bash-completion \
     gummiboot dracut dracut-config-generic binutils \
-    iputils iproute \
+    iputils iproute kbd kbd-misc \
     dosfstools btrfs-progs parted \
-    strace linux-firmware
+    strace linux-firmware ctorrent curl gdisk
 
 # include the usb-storage kernel module
-cat > "$DEST"/etc/dracut.conf.d/usb.conf <<EOF
+cat > "$INSTALL"/etc/dracut.conf.d/usb.conf <<EOF
 add_drivers+=' usb-storage '
 EOF
 
 (
     printf -- "BUILD_ID=$VERSION\n"
     printf -- "ID=$OS\n"
-) >> $DEST/etc/os-release
+    printf -- "PARTICLE_BASEURL_TORRENT_INC='http://particles.surfsite.org/torrents/increment/'"
+    printf -- "PARTICLE_BASEURL_INC='http://particles.surfsite.org/increment/'"
+    printf -- "PARTICLE_BASEURL_TORRENT_IMG='http://particles.surfsite.org/torrents/images/'"
+    printf -- "PARTICLE_BASEURL_IMG='http://particles.surfsite.org/images/'"
+) >> $INSTALL/etc/os-release
 
 
-mkdir -p "$DEST"/usr/lib/systemd/system/initrd-fs.target.requires
+mkdir -p "$INSTALL"/usr/lib/systemd/system/initrd-fs.target.requires
 
-cat > "$DEST"/usr/lib/systemd/system/sysroot-usr.mount <<EOF
+cat > "$INSTALL"/usr/lib/systemd/system/sysroot-usr.mount <<EOF
 [Unit]
 Before=initrd-fs.target
 ConditionPathExists=/etc/initrd-release
@@ -139,9 +152,9 @@ Type=btrfs
 Options=subvol=$SNAPSHOT_NAME
 EOF
 
-ln -snfr "$DEST"/usr/lib/systemd/system/sysroot-usr.mount "$DEST"/usr/lib/systemd/system/initrd-fs.target.requires/sysroot-usr.mount
+ln -snfr "$INSTALL"/usr/lib/systemd/system/sysroot-usr.mount "$INSTALL"/usr/lib/systemd/system/initrd-fs.target.requires/sysroot-usr.mount
 
-cat > "$DEST"/usr/lib/systemd/system/sysroot.mount <<EOF
+cat > "$INSTALL"/usr/lib/systemd/system/sysroot.mount <<EOF
 [Unit]
 Before=initrd-root-fs.target
 ConditionPathExists=/etc/initrd-release
@@ -155,30 +168,30 @@ EOF
 
 
 # include the usb-storage kernel module
-cat > "$DEST"/etc/dracut.conf.d/particle.conf <<EOF
+cat > "$INSTALL"/etc/dracut.conf.d/particle.conf <<EOF
 early_microcode="no"
 reproducible="yes"
 EOF
 
-#cp /etc/yum.repos.d/fedora-rawhide-kernel-nodebug.repo $DEST/etc/yum.repos.d/fedora-rawhide-kernel-nodebug.repo
+#cp /etc/yum.repos.d/fedora-rawhide-kernel-nodebug.repo $INSTALL/etc/yum.repos.d/fedora-rawhide-kernel-nodebug.repo
 for i in $EXTRA_REPOS; do
 	[[ -f /etc/yum.repos.d/"$i" ]] || continue
-        cp /etc/yum.repos.d/"$i" $DEST/etc/yum.repos.d/
+        cp /etc/yum.repos.d/"$i" $INSTALL/etc/yum.repos.d/
 done
 
-rm -f $DEST/boot/*/*/initrd $DEST/boot/initramfs*
+rm -f $INSTALL/boot/*/*/initrd $INSTALL/boot/initramfs*
 
 printf "\n### download and install kernel\n"
 # install after systemd.rpm created the machine-id which kernel-install wants
 yum -y --releasever="$RELEASE" --disablerepo='*' \
     --enablerepo=$KERNEL_REPO \
-    --nogpg --installroot="$DEST" \
+    --nogpg --installroot="$INSTALL" \
     --downloaddir=$STORE/packages \
     -c ${STORE}/installer/yum.conf \
     install kernel
 
-
-yum -y --releasever="$RELEASE" --nogpg --installroot="$DEST" \
+[[ $OS_COMPS ]] \
+    && yum -y --releasever="$RELEASE" --nogpg --installroot="$INSTALL" \
     --disablerepo='*' \
     --enablerepo=fedora \
     --enablerepo=$CPIO_REPO \
@@ -190,17 +203,24 @@ yum -y --releasever="$RELEASE" --nogpg --installroot="$DEST" \
     --exclude 'chrony*' \
     --exclude 'abrt*' \
     --skip-broken \
-    groupinstall "Fedora Workstation"
+    groupinstall $OS_COMPS
 
-
-yum -y --releasever="$RELEASE" --nogpg --installroot="$DEST" \
+yum -y --releasever="$RELEASE" --nogpg --installroot="$INSTALL" \
     --disablerepo='*' \
     --enablerepo=fedora \
     --downloaddir=$STORE/packages \
     -c ${STORE}/installer/yum.conf \
     remove dracut
 
+rpm --root "$INSTALL" -qa > "/mnt/particle/store/packagelist/$SNAPSHOT_NAME.rpmlist.txt"
+
+for i in proc dev sys run; do
+    umount "$INSTALL/$i" || :
+done
+
 rsync -Paqorx --delete-after "$INSTALL"/ "$PREPARE"/
+
+sed -i -e 's#^disable.*##g' "$PREPARE"/lib/systemd/system-preset/90-default.preset
 
 rm -f "$PREPARE"/usr/sbin/fsck.btrfs
 ln -sfrn "$PREPARE"/usr/bin/true "$PREPARE"/usr/sbin/fsck.btrfs
@@ -211,18 +231,20 @@ systemctl --root="$PREPARE" set-default multi-user.target
 cp --reflink=always -a $PREPARE/etc/os-release $PREPARE/usr/lib/
 
 # factory directory to populate /etc
-mkdir -p $PREPARE/usr/share/factory/etc/
+cp -n --reflink=always -a $PREPARE/etc $PREPARE/usr/share/factory/
 
 # shadow utils
-mv "$PREPARE"/etc/login.defs "$PREPARE"/usr/share/factory/etc/
 cat > "$PREPARE"/usr/lib/tmpfiles.d/factory-shadow-utils.conf <<EOF
 C /etc/login.defs - - - -
 EOF
 
 # D-Bus
-mv "$PREPARE"/etc/dbus-1/ "$PREPARE"/usr/share/factory/etc/
 cat > "$PREPARE"/usr/lib/tmpfiles.d/factory-dbus.conf <<EOF
 C /etc/dbus-1 - - - -
+EOF
+
+cat > "$PREPARE"/usr/lib/tmpfiles.d/factory-security.conf <<EOF
+C /etc/security - - - -
 EOF
 
 cat > "$PREPARE"/usr/lib/sysusers.d/fedora-workaround.conf <<EOF
@@ -261,7 +283,7 @@ DHCP=yes
 EOF
 
 (
-    MACHINE_ID=$(<$PREPARE/etc/machine-id)
+    MACHINE_ID=$(<$PREPARE/usr/share/factory/etc/machine-id)
     cd $PREPARE/lib/modules
     for v in *; do
 	[[ -f $PREPARE/boot/$MACHINE_ID/$v/initrd ]] \
@@ -289,7 +311,7 @@ EOF
 	cat > $v/bootloader-${OS}-${ARCH}-${VERSION}.conf <<EOF
 title      $OS $VERSION $ARCH
 version    $VERSION
-options    quiet raid=noautodetect rw console=ttyS0,115200n81 console=tty0 kdbus
+options    quiet raid=noautodetect rw console=ttyS0,115200n81 console=tty0 kdbus selinux=0
 linux      /${OS}-${ARCH}/${VERSION}/vmlinuz
 initrd     /${OS}-${ARCH}/${VERSION}/initrd
 initrd     /${OS}-${ARCH}/${VERSION}/initrd.root
@@ -300,8 +322,8 @@ EOF
 )
 
 rm -f $PREPARE/usr/lib/systemd/system/sysroot-usr.mount \
-    $PREPARE/usr/lib/systemd/system/initrd-fs.target.requires/sysroot-usr.mount
-
+    $PREPARE/usr/lib/systemd/system/initrd-fs.target.requires/sysroot-usr.mount \
+    $PREPARE/usr/share/factory/etc/machine-id
 
 rm -rf -- "$PREPARE/usr/bin.usrmove-new"
 echo "Make a copy of \`$PREPARE/usr/bin'."
@@ -332,13 +354,11 @@ ln -s bin "$PREPARE/usr/sbin"
 mv $PREPARE/usr/lib64 $PREPARE/usr/lib/x86_64-linux-gnu
 ln -sfnr $PREPARE/usr/lib/x86_64-linux-gnu $PREPARE/usr/lib64
 
-curl --globoff --location --retry 3 --fail --show-error --output - -- \
-    'https://raw.githubusercontent.com/haraldh/particle/master/btrfs-to-gpt-image.sh' \
-    > $PREPARE/usr/bin/system-to-gpt-image
-
-curl --globoff --location --retry 3 --fail --show-error --output - -- \
-    'https://raw.githubusercontent.com/haraldh/particle/master/update-usr.sh' \
-    > $PREPARE/usr/bin/system-update
+mkdir -p "$PREPARE"/particle.git 
+git clone https://github.com/haraldh/particle.git "$PREPARE"/particle.git 
+cp "$PREPARE"/particle.git/btrfs-to-gpt-image.sh "$PREPARE"/usr/bin/system-to-gpt-image
+cp "$PREPARE"/particle.git/update-usr.sh "$PREPARE"/usr/bin/system-update
+chmod 0755 "$PREPARE"/usr/bin/system-to-gpt-image "$PREPARE"/usr/bin/system-update
 
 for i in \
     $PREPARE/usr \
@@ -353,16 +373,12 @@ for i in \
     $PREPARE/usr/lib/tmpfiles.d/factory-*.conf \
     $PREPARE/usr/lib/tmpfiles.d \
     $PREPARE/usr/lib \
-    $PREPARE/usr/share/factory/etc/security/* \
-    $PREPARE/usr/share/factory/etc/security \
-    $PREPARE/usr/share/factory/etc/pki/ca-trust/extracted/java/cacerts \
-    $PREPARE/usr/share/factory/etc \
-    $PREPARE/usr/share/factory \
-    $PREPARE/usr/share \
     ; do
     [[ -e $i ]] || continue
     touch -r $PREPARE/etc/system-release "$i"
 done
+
+find $PREPARE/usr/share/factory -type f -newer "$TMPSTORE"/.in_progress -print0 | xargs -0 touch -r $PREPARE/etc/system-release
 
 touch -r $PREPARE/usr/lib/locale/locale-archive.tmpl $PREPARE/usr/lib/locale/locale-archive
 
@@ -371,32 +387,52 @@ for i in $PREPARE/usr/lib/*/modules/modules.*; do
     touch -r $PREPARE/usr/lib/*/modules/modules.builtin "$i"
 done
 
-(
-    cd $PREPARE
-    for i in *; do
-	[[ $i == usr ]] && continue
-	rm -fr "$i"
-    done
-)
-
 cd  "$MASTER"
+
+if ! [[ -d "usr:$OS_ARCH" ]]; then
+    btrfs subvolume create "usr:$OS_ARCH"
+fi
+
 while read a a a g a a a a v; do
     [[ $v ]] || continue
+    [[ $v == usr:$OS_ARCH* ]] || continue
     gen="$g"
     vol="$v"
-done < <(btrfs subvolume list usr)
+done < <(btrfs subvolume list "usr:$OS_ARCH")
 
-rsync -Pavorxc --inplace --delete-after "$PREPARE"/usr/ "$MASTER"/usr/
+rsync -Pavorxc --inplace --delete-after "$PREPARE"/usr/ "$MASTER"/"usr:$OS_ARCH"/
 
-btrfs subvolume snapshot -r usr "$SNAPSHOT_NAME"
+btrfs subvolume snapshot -r "usr:$OS_ARCH" "$SNAPSHOT_NAME"
 
 #btrfs subvolume find-new | fgrep -m 1 -q inode || exit 0
 
-if [[ $vol != "usr" ]]; then
+if [[ $vol != "usr:$OS_ARCH" ]]; then
     btrfs send -p "$vol" "$SNAPSHOT_NAME" -f $TMPSTORE/usr:$OS_ARCH:"${vol##*:}-$VERSION".btrfsinc
     xz -9 -T0 $TMPSTORE/usr:$OS_ARCH:"${vol##*:}-$VERSION".btrfsinc
-    mv $TMPSTORE/usr:$OS_ARCH:"${vol##*:}-$VERSION".btrfsinc.xz $STORE/increment/
-    ln -sfn usr:$OS_ARCH:"${vol##*:}-$VERSION".btrfsinc.xz $STORE/increment/usr:$OS_ARCH:"${vol##*:}".btrfsinc.xz
+    f="usr:$OS_ARCH:"${vol##*:}-$VERSION".btrfsinc.xz"
+    mv "$TMPSTORE/$f" $STORE/increment/
+
+    ln -sfn "$f" $STORE/increment/usr:$OS_ARCH:"${vol##*:}".btrfsinc.xz
+
+    mktorrent \
+	-o $STORE/torrents/increment/"$f".torrent \
+	-w "http://particles.surfsite.org/increment/$f" \
+	-a 'http://particles.surfsite.org:6969/announce' \
+	"$STORE/increment/$f"
+
+    ln -sfn $STORE/torrents/increment/"$f".torrent $STORE/torrents/increment/usr:$OS_ARCH:"${vol##*:}".btrfsinc.xz.torrent
+
+    for i in \
+	"$STORE/increment/$f" \
+	$STORE/torrents/increment/"$f".torrent \
+	$STORE/increment/usr:$OS_ARCH:"${vol##*:}".btrfsinc.xz \
+	$STORE/torrents/increment/usr:$OS_ARCH:"${vol##*:}".btrfsinc.xz.torrent \
+	; do
+	chcon --type=httpd_sys_content_t "$i"
+	chmod a+r "$i"
+    done
+
+    transmission-remote -w "$STORE/increment" -a $STORE/torrents/increment/"$f".torrent
 fi
 
 LATEST="$STORE/images/usr:$OS_ARCH:latest.btrfs.xz"
@@ -405,25 +441,23 @@ if ! [[ -f "$LATEST" ]] || (( ($(date +%s) - $(stat -L --format %Y "$LATEST" )) 
     btrfs send "$SNAPSHOT_NAME" -f "$TMPSTORE/$SNAPSHOT_NAME.btrfs"
     xz -9 -T0 "$TMPSTORE/$SNAPSHOT_NAME.btrfs"
     mv "$TMPSTORE/$SNAPSHOT_NAME.btrfs.xz" $STORE/images/
+
+    mktorrent \
+	-o $STORE/torrents/images/"$SNAPSHOT_NAME.btrfs.xz".torrent \
+	-w "http://particles.surfsite.org/images/$SNAPSHOT_NAME.btrfs.xz" \
+	-a 'http://particles.surfsite.org:6969/announce' \
+	$STORE/images/"$SNAPSHOT_NAME.btrfs.xz"
+
+    for i in $STORE/images/"$SNAPSHOT_NAME.btrfs.xz" $STORE/torrents/images/"$SNAPSHOT_NAME.btrfs.xz".torrent; do
+	chcon --type=httpd_sys_content_t "$i"
+	chmod a+r "$i"
+    done
+
+    transmission-remote -w "$STORE/images" -a "$STORE/torrents/images/$SNAPSHOT_NAME.btrfs.xz.torrent"
+
     ln -sfn "$SNAPSHOT_NAME.btrfs.xz" "$LATEST"
+    ln -sfn $STORE/torrents/images/"$SNAPSHOT_NAME.btrfs.xz".torrent "$STORE/torrents/images/usr:$OS_ARCH:latest.btrfs.xz.torrent"
 fi
-
-
-cd "$STORE/images"
-for i in *; do
-    [[ -L $i ]]  && continue
-    [[ -f "../torrents/images/$i.torrent" ]] && continue
-    mktorrent -o ../torrents/images/"$i".torrent -w "http://particles.surfsite.org/images/$i" -a 'udp://tracker.openbittorrent.com:80/announce' "$i"
-done
-
-cd "$STORE/increment"
-
-for i in *; do
-    [[ -L $i ]]  && continue
-    [[ -f ../torrents/increment/"$i".torrent ]] && continue
-    mktorrent -o ../torrents/increment/"$i".torrent -w "http://particles.surfsite.org/increment/$i" -a 'udp://tracker.openbittorrent.com:80/announce' "$i"
-done
-
 
 chcon -R --type=httpd_sys_content_t $STORE
 chmod -R a+r  $STORE
