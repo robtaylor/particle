@@ -131,8 +131,11 @@ clean_vols()
     done
 }
 
+
 while true; do
     [[ -d "$ROOT/$usrsubvol" ]] || exit 0
+
+    clean_vols
 
     if ! curl --head -s --globoff --location --retry 3 --fail --output /dev/null -- \
         "http://particles.surfsite.org/torrents/increment/$usrsubvol.btrfsinc.xz.torrent"; then
@@ -157,7 +160,6 @@ while true; do
     [[ $oldusrsubvol == "$usrsubvol" ]] && break
 
     printf -- "Installed $usrsubvol\n"
-    clean_vols
 done
 
 for kdir in "$ROOT"/"$usrsubvol"/lib/modules/*; do
