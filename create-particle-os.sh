@@ -401,7 +401,7 @@ while read a a a g a a a a v; do
     vol="$v"
 done < <(btrfs subvolume list "usr:$OS_ARCH")
 
-rsync -Pavorxc --inplace --delete-after "$PREPARE"/usr/ "$MASTER"/"usr:$OS_ARCH"/
+rsync -Pavorxc --inplace --fuzzy --delete-after "$PREPARE"/usr/ "$MASTER"/"usr:$OS_ARCH"/
 
 btrfs subvolume snapshot -r "usr:$OS_ARCH" "$SNAPSHOT_NAME"
 
