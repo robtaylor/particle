@@ -4,10 +4,15 @@ set -o pipefail
 
 readonly ROOT="$(mktemp --tmpdir="/run/" -d -t updateusr.XXXXXX)"
 readonly USRDIR=$(readlink -f ${1:-/usr})
+readonly TRANSMISSIONDIR="$(mktemp -d -t updateusr.XXXXXX)"
 trap '
     ret=$?;
-    rm -f "$ROOT"/update.img "$ROOT"/update.torrent*
-    mountpoint -q "$ROOT" && umount "$ROOT"
+    if mountpoint -q "$ROOT"; then
+        rm -f "$ROOT"/update.torrent*
+        rm -f "$ROOT"/killppid
+        rm -fr "$TRANSMISSIONDIR"
+        umount "$ROOT"
+    fi
     rmdir "$ROOT"
     exit $ret;
     ' EXIT
@@ -22,7 +27,10 @@ while ! DEV=$(findmnt -e -v -n -o 'SOURCE' --target "$mntp"); do
 done
 
 mkdir -p "$ROOT"
+mkdir -p "$TRANSMISSIONDIR"
 mount "$DEV" -o subvol=/ "$ROOT"
+printf -- '#!/bin/sh\nkill $PPID\n' > "$ROOT/killppid"
+chmod u+x "$ROOT/killppid"
 
 vercmp() {
     local _n1=(${1//./ }) _op=$2 _n2=(${3//./ }) _i _res
@@ -141,7 +149,8 @@ while true; do
         PARTICLE_BASEURL_TORRENT_INC \
         PARTICLE_BASEURL_INC \
         PARTICLE_BASEURL_TORRENT_IMG \
-        PARTICLE_BASEURL_IMG
+        PARTICLE_BASEURL_IMG \
+        DONE
 
     oldusrsubvol="$usrsubvol"
 
@@ -156,13 +165,15 @@ while true; do
             "$PARTICLE_BASEURL_TORRENT_INC/$usrsubvol.btrfsinc.xz.torrent" \
             > "$ROOT"/update.torrent || :
 
-        ctorrent -D 10000000 -e 0 -a -s "$ROOT"/update.img "$ROOT"/update.torrent </dev/null || :
-        if [[ -f "$ROOT"/update.img ]]; then
-            xzcat < "$ROOT"/update.img | btrfs receive "$ROOT" || rm -f "$ROOT"/update.img
-        fi
+        transmission-cli -g "$TRANSMISSIONDIR" --finish "$ROOT/killppid" --download-dir "$ROOT" "$ROOT"/update.torrent </dev/null || :
+        for i in "$ROOT"/*.btrfsinc.xz; do
+            [[ -f "$ROOT/$i" ]] || continue
+            xzcat < "$ROOT/$i" | btrfs receive "$ROOT" && DONE=1
+            rm -f "$ROOT/$i"
+        done
     fi
 
-    if ! [[ -f "$ROOT"/update.img ]]; then
+    if ! [[ $DONE ]]; then
         if ! curl --head -s --globoff --location --retry 3 --fail --output /dev/null -- \
             "$PARTICLE_BASEURL_INC/$usrsubvol.btrfsinc.xz"; then
             printf -- "No further updates available. Latest is $usrsubvol\n"
@@ -171,9 +182,7 @@ while true; do
 
         curl --globoff --location --retry 3 --fail --show-error --output - -- \
             "$PARTICLE_BASEURL_INC/$usrsubvol.btrfsinc.xz" \
-            | xzcat | btrfs receive "$ROOT"
-    else
-        rm -f "$ROOT"/update.img "$ROOT"/update.torrent*
+            | xzcat | btrfs receive "$ROOT" && DONE=1
     fi
 
     usrsubvol=$(btrfs_find_newest "$ROOT" "$USRVOL")
