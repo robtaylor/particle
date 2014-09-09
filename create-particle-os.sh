@@ -121,7 +121,8 @@ yum -y --releasever="$RELEASE" --nogpg --installroot="$INSTALL" \
     gummiboot dracut dracut-config-generic binutils \
     iputils iproute kbd kbd-misc \
     dosfstools btrfs-progs parted \
-    strace linux-firmware ctorrent curl gdisk
+    strace linux-firmware curl gdisk \
+    openssh-clients transmission-cli
 
 # include the usb-storage kernel module
 cat > "$INSTALL"/etc/dracut.conf.d/usb.conf <<EOF
