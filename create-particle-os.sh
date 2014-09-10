@@ -237,9 +237,22 @@ cp --reflink=always -a $PREPARE/etc/os-release $PREPARE/usr/lib/
 # factory directory to populate /etc
 cp -n --reflink=always -a $PREPARE/etc $PREPARE/usr/share/factory/
 
+# add dns fallback
+sed -i -e 's#^hosts:.*#\0 [NOTFOUND=return] dns#' $PREPARE/usr/share/factory/etc/nsswitch.conf
+
 # shadow utils
 cat > "$PREPARE"/usr/lib/tmpfiles.d/factory-shadow-utils.conf <<EOF
 C /etc/login.defs - - - -
+EOF
+
+# man
+cat > "$PREPARE"/usr/lib/tmpfiles.d/factory-man.conf <<EOF
+C /etc/man_db.conf - - - -
+EOF
+
+# resolv.conf
+cat > "$PREPARE"/usr/lib/tmpfiles.d/factory-resolv.conf <<EOF
+L /etc/resolv.conf - - - - /run/systemd/resolve/resolv.conf
 EOF
 
 # D-Bus
