@@ -121,7 +121,9 @@ yum -y --releasever="$RELEASE" --nogpg --installroot="$INSTALL" \
     gummiboot dracut dracut-config-generic binutils \
     iputils iproute kbd kbd-misc \
     dosfstools btrfs-progs parted \
-    strace linux-firmware curl gdisk \
+    strace ltrace \
+    linux-firmware curl gdisk \
+    man man-db man-pages \
     openssh-clients aria2
 
 # include the usb-storage kernel module
