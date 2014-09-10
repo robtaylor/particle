@@ -122,8 +122,9 @@ clean_vols()
                                 # replace \ with /
                                 p=${val//\\//}
                                 # create the base directory
-                                rm -f "/boot/${p%/*}"/$key
+                                rm -f "/boot/$p"
                                 rmdir "/boot/${p%/*}" &>/dev/null || :
+                                ;;
                         esac
                     done < "$b"
                     rm -f /boot/loader/entries/"$b"
