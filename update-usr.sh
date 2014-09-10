@@ -162,7 +162,7 @@ while true; do
             "$PARTICLE_BASEURL_TORRENT_INC/$usrsubvol.btrfsinc.xz.torrent" \
             > "$TMPIMGDIR"/update.torrent || :
 
-        aria2c --index-out=1="$TMPIMGDIR/update.img.xz" -l "" --seed-time=0  "$TMPIMGDIR"/update.torrent || :
+        aria2c -d "$TMPIMGDIR" --index-out=1="update.img.xz" -l "" --seed-time=0  "$TMPIMGDIR"/update.torrent || :
         if [[ -f "$TMPIMGDIR/update.img.xz" ]]; then
             xzcat < "$TMPIMGDIR/update.img.xz" | btrfs receive "$ROOT" && DONE=1
             rm -f "$TMPIMGDIR/update.img.xz"
