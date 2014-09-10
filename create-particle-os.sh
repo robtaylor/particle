@@ -127,8 +127,9 @@ yum -y --releasever="$RELEASE" --nogpg --installroot="$INSTALL" \
     openssh-clients aria2
 
 # include the usb-storage kernel module
-cat > "$INSTALL"/etc/dracut.conf.d/usb.conf <<EOF
+cat > "$INSTALL"/etc/dracut.conf.d/particle.conf <<EOF
 add_drivers+=' usb-storage '
+omit_dracutmodules='i18n resume rootfs-block terminfo usrmount shutdown'
 EOF
 
 (
