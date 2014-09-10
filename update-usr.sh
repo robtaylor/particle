@@ -4,15 +4,11 @@ set -o pipefail
 
 readonly ROOT="$(mktemp --tmpdir="/run/" -d -t updateusr.XXXXXX)"
 readonly USRDIR=$(readlink -f ${1:-/usr})
-readonly TRANSMISSIONDIR="$(mktemp -d -t updateusr.XXXXXX)"
+readonly TMPIMGDIR="$(mktemp --tmpdir="/var/tmp/" -d -t updateusr.XXXXXX)"
 trap '
     ret=$?;
-    if mountpoint -q "$ROOT"; then
-        rm -f "$ROOT"/update.torrent*
-        rm -f "$ROOT"/killppid
-        rm -fr "$TRANSMISSIONDIR"
-        umount "$ROOT"
-    fi
+    [[ -d "$TMPIMGDIR" ]] && rm -fr "$TMPIMGDIR"
+    mountpoint -q "$ROOT" && umount "$ROOT"
     rmdir "$ROOT"
     exit $ret;
     ' EXIT
@@ -27,7 +23,7 @@ while ! DEV=$(findmnt -e -v -n -o 'SOURCE' --target "$mntp"); do
 done
 
 mkdir -p "$ROOT"
-mkdir -p "$TRANSMISSIONDIR"
+mkdir -p "$TMPIMGDIR"
 mount "$DEV" -o subvol=/ "$ROOT"
 printf -- '#!/bin/sh\nkill $PPID\n' > "$ROOT/killppid"
 chmod u+x "$ROOT/killppid"
@@ -163,14 +159,13 @@ while true; do
 
         curl --globoff --location --retry 3 --fail --show-error --output - -- \
             "$PARTICLE_BASEURL_TORRENT_INC/$usrsubvol.btrfsinc.xz.torrent" \
-            > "$ROOT"/update.torrent || :
+            > "$TMPIMGDIR"/update.torrent || :
 
-        transmission-cli -g "$TRANSMISSIONDIR" --finish "$ROOT/killppid" --download-dir "$ROOT" "$ROOT"/update.torrent </dev/null || :
-        for i in "$ROOT"/*.btrfsinc.xz; do
-            [[ -f "$ROOT/$i" ]] || continue
-            xzcat < "$ROOT/$i" | btrfs receive "$ROOT" && DONE=1
-            rm -f "$ROOT/$i"
-        done
+        aria2c --index-out=1="$TMPIMGDIR/update.img.xz" -l "" --seed-time=0  "$TMPIMGDIR"/update.torrent || :
+        if [[ -f "$TMPIMGDIR/update.img.xz" ]]; then
+            xzcat < "$TMPIMGDIR/update.img.xz" | btrfs receive "$ROOT" && DONE=1
+            rm -f "$TMPIMGDIR/update.img.xz"
+	fi
     fi
 
     if ! [[ $DONE ]]; then

@@ -122,7 +122,7 @@ yum -y --releasever="$RELEASE" --nogpg --installroot="$INSTALL" \
     iputils iproute kbd kbd-misc \
     dosfstools btrfs-progs parted \
     strace linux-firmware curl gdisk \
-    openssh-clients transmission-cli
+    openssh-clients aria2
 
 # include the usb-storage kernel module
 cat > "$INSTALL"/etc/dracut.conf.d/usb.conf <<EOF
