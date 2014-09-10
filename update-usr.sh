@@ -183,6 +183,9 @@ while true; do
 
     usrsubvol=$(btrfs_find_newest "$ROOT" "$USRVOL")
 
+    # FIXME: workaround for systemd-nspawn.. remove me later
+    [[ -L "$ROOT/usr" ]] && ln -fsrn "$ROOT/$usrsubvol" "$ROOT/usr"
+
     [[ $oldusrsubvol == "$usrsubvol" ]] && break
 
     printf -- "Installed $usrsubvol\n"
