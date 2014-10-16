@@ -25,8 +25,6 @@ done
 mkdir -p "$ROOT"
 mkdir -p "$TMPIMGDIR"
 mount "$DEV" -o subvol=/ "$ROOT"
-printf -- '#!/bin/sh\nkill $PPID\n' > "$ROOT/killppid"
-chmod u+x "$ROOT/killppid"
 
 vercmp() {
     local _n1=(${1//./ }) _op=$2 _n2=(${3//./ }) _i _res
