@@ -126,12 +126,6 @@ yum -y --releasever="$RELEASE" --nogpg --installroot="$INSTALL" \
     man man-db man-pages \
     openssh-clients aria2
 
-# include the usb-storage kernel module
-cat > "$INSTALL"/etc/dracut.conf.d/particle.conf <<EOF
-add_drivers+=' usb-storage '
-omit_dracutmodules='i18n resume rootfs-block terminfo usrmount shutdown'
-EOF
-
 (
     printf -- "BUILD_ID=$VERSION\n"
     printf -- "ID=$OS\n"
@@ -173,6 +167,9 @@ EOF
 
 # include the usb-storage kernel module
 cat > "$INSTALL"/etc/dracut.conf.d/particle.conf <<EOF
+add_drivers+=' usb-storage '
+omit_dracutmodules='i18n resume rootfs-block terminfo usrmount shutdown'
+filesystems=' vfat btrfs '
 early_microcode="no"
 reproducible="yes"
 EOF
