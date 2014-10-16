@@ -264,7 +264,6 @@ EOF
 cat > "$PREPARE"/usr/lib/sysusers.d/fedora-workaround.conf <<EOF
 u gdm - "GDM User"
 g gdm - -
-g man - -
 u dbus - "D-Bus Legacy User"
 u usbmuxd - -
 u colord - -
@@ -273,6 +272,7 @@ g kvm - -
 u abrt - -
 u lp - -
 u apache - -
+u man - -
 g man - -
 g openvpn - -
 u radvd - -
