@@ -1,0 +1,8 @@
+[main]
+cachedir=@STORE@/installer/cache
+keepcache=1
+debuglevel=2
+logfile=@STORE@/installer/yum.log
+exactarch=1
+obsoletes=1
+reposdir=@STORE@/installer/yum.conf.d

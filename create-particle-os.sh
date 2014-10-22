@@ -25,16 +25,26 @@ PREPARE="${PARTICLE_ROOT}/prepare"
 MASTER="${PARTICLE_ROOT}/master"
 STORE="${PARTICLE_ROOT}/store"
 TMPSTORE="${PARTICLE_ROOT}/tmp"
-ARCH="$(arch)"
+ARCH="$(uname -m)"
 OS_ARCH="$OS:$ARCH"
 VERSION="$(date -u +'%Y%m%d%H%M%S')"
 SNAPSHOT_NAME="usr:$OS_ARCH:$VERSION"
 
+echo "Testing for prequisites:"
 for i in "$PREPARE" "$INSTALL" "$MASTER" "$STORE" "$TMPSTORE"; do
-    [[ -d "$i" ]] || exit 1
+    echo  -n "  $i"
+    [[ -d "$i" ]] || ( echo ": Not found" && exit 1 )
+    echo
 done
 
-[[ -f "$TMPSTORE"/.in_progress ]] && exit 0
+
+HAVE_SELINUX=no
+
+if [ -e /etc/selinux/config  && grep -v enforcing /etc/selinux/config ]; then
+	HAVE_SELINUX=yes
+fi
+
+[[ -f "$TMPSTORE"/.in_progress ]] && echo "ERROR: Particle creation already in progress" && exit 0
 > "$TMPSTORE"/.in_progress
 
 mkdir -p "$INSTALL/$OS"
@@ -65,7 +75,11 @@ mount --bind /sys "$INSTALL"/sys
 mount -t tmpfs tmpfs "$INSTALL"/run
 
 # short cut
-if [[ -f $INSTALL/var/lib/rpm/Packages ]]; then
+echo "Testing for existing system"
+if false; then
+	#[[ -f $INSTALL/var/lib/rpm/Packages ]]; then
+    echo "Updating..."
+
     yum --releasever="$RELEASE" --disablerepo='*' \
         --enablerepo=fedora \
 	--enablerepo=$KERNEL_REPO \
@@ -107,6 +121,15 @@ ln -fs ../run/lock "$INSTALL"/var/lock
 
 # make resolver work inside the chroot, yum will need it if called a second time
 ln -fs /run/systemd/resolve/resolv.conf "$INSTALL"/etc
+
+printf "\n### yum makecache\n"
+echo yum -y --releasever="$RELEASE" --nogpg --installroot="$INSTALL" \
+    --disablerepo='*' \
+    --enablerepo=fedora \
+    --enablerepo=$CPIO_REPO \
+    --downloaddir=$STORE/packages \
+    -c ${STORE}/installer/yum.conf \
+     makecache
 
 printf "\n### download and install base packages\n"
 yum -y --releasever="$RELEASE" --nogpg --installroot="$INSTALL" \
@@ -213,6 +236,7 @@ yum -y --releasever="$RELEASE" --nogpg --installroot="$INSTALL" \
     -c ${STORE}/installer/yum.conf \
     remove dracut
 
+mkdir -p /mnt/particle/store/packagelist/
 rpm --root "$INSTALL" -qa > "/mnt/particle/store/packagelist/$SNAPSHOT_NAME.rpmlist.txt"
 
 for i in proc dev sys run; do
@@ -443,7 +467,9 @@ if [[ $vol != "usr:$OS_ARCH" ]]; then
 	$STORE/increment/usr:$OS_ARCH:"${vol##*:}".btrfsinc.xz \
 	$STORE/torrents/increment/usr:$OS_ARCH:"${vol##*:}".btrfsinc.xz.torrent \
 	; do
-	chcon --type=httpd_sys_content_t "$i"
+	if [ x$HAVE_SELINUX == xyes ]; then 
+	    chcon --type=httpd_sys_content_t "$i"
+	fi
 	chmod a+r "$i"
     done
 
@@ -464,7 +490,9 @@ if ! [[ -f "$LATEST" ]] || (( ($(date +%s) - $(stat -L --format %Y "$LATEST" )) 
 	$STORE/images/"$SNAPSHOT_NAME.btrfs.xz"
 
     for i in $STORE/images/"$SNAPSHOT_NAME.btrfs.xz" $STORE/torrents/images/"$SNAPSHOT_NAME.btrfs.xz".torrent; do
-	chcon --type=httpd_sys_content_t "$i"
+	if [ x$HAVE_SELINUX == xyes ]; then 
+	    chcon --type=httpd_sys_content_t "$i"
+	fi
 	chmod a+r "$i"
     done
 
@@ -474,6 +502,9 @@ if ! [[ -f "$LATEST" ]] || (( ($(date +%s) - $(stat -L --format %Y "$LATEST" )) 
     ln -sfn $STORE/torrents/images/"$SNAPSHOT_NAME.btrfs.xz".torrent "$STORE/torrents/images/usr:$OS_ARCH:latest.btrfs.xz.torrent"
 fi
 
-chcon -R --type=httpd_sys_content_t $STORE
+if [ x$HAVE_SELINUX == xyes ]; then 
+	chcon -R --type=httpd_sys_content_t $STORE
+fi
+
 chmod -R a+r  $STORE
 printf "\n### finished\n"
