@@ -17,8 +17,13 @@ mkdir -p $MASTER
 mkdir -p $STORE
 mkdir -p $TMPSTORE
 
+mkdir -p $STORE/images/
 mkdir -p $STORE/installer/
-cp /etc/yum.conf $STORE/installer/ > /dev/null 2>&1 || cp /etc/yum/yum.conf $STORE/installer/ > /dev/null 2>&1
+mkdir -p $STORE/increment/
+mkdir -p $STORE/torrents/increment/
+mkdir -p $STORE/torrents/images/
+
+sed -e "s%@STORE@%$STORE%" yum.conf.in >  $STORE/installer/yum.conf
 
 if [ ! -e fedora-repos ]; then 
 	git clone https://git.fedorahosted.org/git/fedora-repos.git
@@ -27,15 +32,30 @@ fi
 mkdir -p $STORE/installer/yum.conf.d
 cp fedora-repos/fedora*.repo $STORE/installer/yum.conf.d
 
-wget https://copr.fedoraproject.org/coprs/harald/cpio-reproducible/repo/fedora-rawhide/harald-cpio-reproducible-fedora-rawhide.repo
+if [ ! -f harald-cpio-reproducible-fedora-rawhide.repo ]; then
+	wget https://copr.fedoraproject.org/coprs/harald/cpio-reproducible/repo/fedora-rawhide/harald-cpio-reproducible-fedora-rawhide.repo
+fi
 
 cp harald-cpio-reproducible-fedora-rawhide.repo $STORE/installer/yum.conf.d
+
+if [ ! -f fedora-rawhide-kernel-nodebug.repo ]; then
+	wget http://alt.fedoraproject.org/pub/alt/rawhide-kernel-nodebug/fedora-rawhide-kernel-nodebug.repo
+fi
+
+cp fedora-rawhide-kernel-nodebug.repo $STORE/installer/yum.conf.d
+
 
 if [ ! -f particle.img ]; then
 	dd if=/dev/zero of=particle.img bs=1G count=20
 	mkfs.btrfs particle.img
 fi
 
-sudo umount "${PARTICLE_ROOT}/master" > /dev/null 2>&1
-sudo mount particle.img "${PARTICLE_ROOT}/master"
+sudo umount "$MASTER" > /dev/null 2>&1
+sudo umount "$PREPARE" > /dev/null 2>&1
+sudo mount particle.img "${MASTER}"
 
+if ! [[ -d "$MASTER/prepare" ]]; then
+    sudo sh -c "cd $MASTER && btrfs subvolume create prepare"
+fi
+
+sudo mount -t btrfs -o subvol=prepare particle.img $PREPARE
